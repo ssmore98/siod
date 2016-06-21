@@ -1,10 +1,24 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
+#include <errno.h>
+#include <time.h>
 
-void print_usage(char *p) {
-	fprintf(stderr, "Usage:\n\n%s [rw] [rs] [0-9]+ [0-9]+ [0123] /dev/sg[0-9]+ <logfile>\n", p);
+#include <string>
+
+static void print_usage(const std::string p) {
+	fprintf(stderr, "Usage:\n\n%s [rw] [rs] [0-9]+ [0-9]+ [0123] /dev/sg[0-9]+ <logfile>\n", p.c_str());
 	exit(-2);
+}
+
+static std::string strtime() {
+	time_t t;
+	time(&t);
+	struct tm * mytm = gmtime(&t);
+	std::string retval(asctime(mytm));
+	retval.pop_back();
+	return retval;
 }
 
 /*
@@ -13,7 +27,6 @@ void print_usage(char *p) {
  * -1 : caught SIGTERM
  * -2 : error in command line parameters
  */
-
 int main(int argc, char **argv) {
 	if (argc != 8) {
 		print_usage(argv[0]);
@@ -69,7 +82,25 @@ int main(int argc, char **argv) {
 		default:
 		       	print_usage(argv[0]);
 	}
-	const char * const device = argv[6];
-	const char * const logfilename = argv[7];
+	const std::string device(argv[6]);
+	const std::string logfilename(argv[7]);
+
+	FILE *logfp = fopen(logfilename.c_str(), "w");
+
+	if (!logfp) fprintf(stderr, "%s", strerror(errno));
+
+	if (logfp) fprintf(logfp, "%s UTC: %s %c %c %hu %hu %hu %s %s\n", strtime().c_str(), argv[0], argv[1][0], argv[2][0], iosize, qdepth, key, device.c_str(), logfilename.c_str());
+
+	uint64_t blocks_accessed = 0;
+
+	if (logfp) fprintf(logfp, "%s UTC: %lu blocks accessed\n", strtime().c_str(), blocks_accessed);
+
+	if (logfp) fclose(logfp);
+
 	return 0;
+
+	key = key;
+	is_write = is_write;
+	is_random = is_random;
+	print_usage(device);
 }
