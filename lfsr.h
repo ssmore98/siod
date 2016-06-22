@@ -1,3 +1,6 @@
+#ifndef LFSR_H
+#define LFSR_H
+
 #include <stdint.h>
 #include <map>
 #include <vector>
@@ -17,12 +20,18 @@ class LFSR {
 			// const uint64_t bit = (next_value ^ (next_value >> 1)) & 1;
 			next_value = (bit << (bits - 1)) | (next_value >> 1);
 		}
+		static uint8_t n_bits(const uint64_t & n) {
+			uint8_t retval = 0;
+			uint64_t nn = n;
+			while (nn) {
+				nn >>= 1;
+				retval++;
+			}
+			return retval;
+		}
 	public:
 		const uint8_t bits;
-		LFSR(const uint8_t & p_bits, const uint64_t & seed = 1): next_value(seed), bits((p_bits > 64) ? 64 : p_bits) {
-			next_value = next_value << (64 - bits);
-			next_value = next_value >> (64 - bits);
-			if (next_value < 1) next_value = 1;
+		LFSR(const uint64_t & blocks): next_value(1), bits(n_bits(blocks)) {
 			switch (bits) {
 				case 3:
 				case 4:
@@ -232,3 +241,90 @@ class LFSR {
 			return next_value;
 		}
 };
+
+class Offset {
+	protected:
+		uint64_t offset;
+		uint64_t blocks;
+	public:
+		Offset(const uint64_t p_blocks): offset(0), blocks(p_blocks) {
+		}
+		virtual ~Offset() {}
+		Offset(const Offset & o): offset(o.offset), blocks(o.blocks) {
+		}
+		const Offset & operator=(const Offset & o) {
+			offset = o.offset;
+			blocks = o.blocks;
+			return *this;
+		}
+		operator uint64_t() const {
+			return offset;
+		}
+		virtual uint64_t Next() = 0;
+};
+
+class SequentialOffset: public Offset {
+	public:
+	       	SequentialOffset(const uint64_t & blocks): Offset(blocks) {
+		}
+		SequentialOffset(const SequentialOffset & o): Offset(o) {
+		}
+		const SequentialOffset & operator=(const SequentialOffset & o) {
+			offset = o.offset;
+			blocks = o.blocks;
+			return *this;
+		}
+		uint64_t Next() {
+			uint64_t retval = offset;
+			offset += 1;
+			if (offset >= blocks) offset = 0;
+			return retval;
+		}
+}; 
+
+#if 0
+class LFSR {
+       	private:
+	       	LFSR(const LFSR &);
+	       	const LFSR & operator=(const LFSR &);
+	       	uint64_t next_value;
+	       	uint64_t count;
+       	protected:
+	       	static const uint64_t SEED;
+	       	LFSR(): next_value(SEED), count(0) {
+	       	}
+	       	unsigned long long int Next() {
+		       	if ((next_value == SEED) && count) {
+			       	if (count != (1 << 23) - 1) throw Exception(__FILE__, __LINE__);
+			       	throw xLFSR(__FILE__, __LINE__, "Random sequence repeated.");
+		       	}
+		       	const uint64_t retval = next_value;
+		       	uint64_t bit = (next_value ^ (next_value >> 5)) & 1;
+		       	next_value = (bit << 22) | (next_value >> 1);
+		       	count++;
+		       	return retval;
+	       	}
+};
+
+const uint64_t LFSR::SEED(1);
+#endif
+
+class RandomOffset: public Offset {
+	private:
+	       	RandomOffset(const RandomOffset &);
+	       	const RandomOffset & operator=(const RandomOffset &);
+		LFSR lfsr;
+	public:
+		RandomOffset(const uint64_t & blocks): Offset(blocks), lfsr(blocks) {
+		}
+		uint64_t Next() {
+			while (1) {
+				offset = (lfsr++) - 1;
+			       	if (offset < blocks) return offset;
+			}
+		       	throw std::string("Unreachable code");
+			return 0;
+		}
+};
+
+#endif // LFSR_H
