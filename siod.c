@@ -13,6 +13,14 @@
 
 #include "lfsr.h"
 
+typedef struct tagIO {
+	bool used;
+	uint16_t me;
+	double start, end;
+	unsigned char cdb[16];
+	unsigned char sb[32];
+} IO;
+
 static void print_usage(const std::string p) {
 	fprintf(stderr, "Usage:\n\n%s [rw] [rs] [0-9]+ [0-9]+ [0123] /dev/sg[0-9]+ <logfile>\n", p.c_str());
 	exit(-2);
@@ -82,6 +90,17 @@ int main(int argc, char **argv) {
 	if (1 != sscanf(argv[4], "%hu", &qdepth) || !qdepth || (qdepth > 128)) {
 	       	print_usage(argv[0]);
 	}
+	IO *ios = new IO[qdepth];
+	if (NULL == ios) {
+		fprintf(stderr, "Out of memory.\n");
+		return -4;
+	}
+	for (uint16_t i = 0; i < qdepth; i++) {
+	       	memset(&ios[i], 0, sizeof(IO));
+		ios[i].used = false;
+		ios[i].me = i;
+	}
+
 	uint8_t key = 0;
 	switch (argv[5][0]) {
 		case '0':
@@ -101,7 +120,6 @@ int main(int argc, char **argv) {
 	}
 	const std::string device(argv[6]);
 	const std::string logfilename(argv[7]);
-
 
 	FILE *logfp = fopen(logfilename.c_str(), "w");
 
@@ -153,6 +171,8 @@ int main(int argc, char **argv) {
 
 	delete offset;
 	offset = NULL;
+	delete [] ios;
+	ios = NULL;
 
 	sg_cmds_close_device(fd);
 
