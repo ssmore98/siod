@@ -37,8 +37,10 @@ static std::string strtime() {
  * -1 : caught SIGTERM
  * -2 : error in command line parameters
  * -3 : error accessing the device
+ * -4 : out of memory
  */
 int main(int argc, char **argv) {
+
 	if (SIG_ERR == signal(SIGINT, getout)) {
 		fprintf(stderr, "Cannot manage SIGINT: %s\n", strerror(errno));
 		return -1;
@@ -100,6 +102,7 @@ int main(int argc, char **argv) {
 	const std::string device(argv[6]);
 	const std::string logfilename(argv[7]);
 
+
 	FILE *logfp = fopen(logfilename.c_str(), "w");
 
 	if (!logfp) fprintf(stderr, "%s", strerror(errno));
@@ -131,6 +134,26 @@ int main(int argc, char **argv) {
 			}
        	}
 	if (logfp) fprintf(logfp, "%s UTC: Max LBA %lu Block Size %u\n", strtime().c_str(), max_lba, blocksize);
+
+	const uint64_t max_offsets = (max_lba + 1) / iosize + (((max_lba + 1) % iosize) ? 1 : 0);
+	Offset *offset = NULL;
+	if (is_random) offset = new RandomOffset(max_offsets);
+	else           offset = new SequentialOffset(max_offsets);
+	if (NULL == offset) {
+		fprintf(stderr, "Out of memory.\n");
+		return -4;
+	}
+	const uint64_t last = *offset;
+	do {
+		const uint64_t a = *offset;
+		const uint64_t b =  a * iosize;
+		const uint32_t c =  (b + iosize - 1 <= max_lba) ? iosize : max_lba - b + 1;
+		printf("%lu %u\n",  b, c);
+	} while (last != offset->Next());
+
+	delete offset;
+	offset = NULL;
+
 	sg_cmds_close_device(fd);
 
 	if (logfp) fprintf(logfp, "%s UTC: %lu blocks accessed\n", strtime().c_str(), blocks_accessed);
