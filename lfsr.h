@@ -31,7 +31,7 @@ class LFSR {
 		}
 	public:
 		const uint8_t bits;
-		LFSR(const uint64_t & blocks): next_value(1), bits(n_bits(blocks)) {
+		LFSR(const uint64_t & blocks, const uint64_t & seed = 1): next_value(seed), bits(n_bits(blocks)) {
 			switch (bits) {
 				case 3:
 				case 4:
@@ -224,7 +224,7 @@ class LFSR {
 					bitmap.push_back(4);
 					break;
 				default:
-					throw;
+					abort();
 			}
 		}
 		virtual ~LFSR() {}
@@ -264,9 +264,7 @@ class Offset {
 };
 
 class SequentialOffset: public Offset {
-	public:
-	       	SequentialOffset(const uint64_t & blocks): Offset(blocks) {
-		}
+	private:
 		SequentialOffset(const SequentialOffset & o): Offset(o) {
 		}
 		const SequentialOffset & operator=(const SequentialOffset & o) {
@@ -274,40 +272,15 @@ class SequentialOffset: public Offset {
 			blocks = o.blocks;
 			return *this;
 		}
+	public:
+	       	SequentialOffset(const uint64_t & blocks): Offset(blocks) {
+		}
 		uint64_t Next() {
-			uint64_t retval = offset;
 			offset += 1;
 			if (offset >= blocks) offset = 0;
-			return retval;
+			return offset;
 		}
 }; 
-
-#if 0
-class LFSR {
-       	private:
-	       	LFSR(const LFSR &);
-	       	const LFSR & operator=(const LFSR &);
-	       	uint64_t next_value;
-	       	uint64_t count;
-       	protected:
-	       	static const uint64_t SEED;
-	       	LFSR(): next_value(SEED), count(0) {
-	       	}
-	       	unsigned long long int Next() {
-		       	if ((next_value == SEED) && count) {
-			       	if (count != (1 << 23) - 1) throw Exception(__FILE__, __LINE__);
-			       	throw xLFSR(__FILE__, __LINE__, "Random sequence repeated.");
-		       	}
-		       	const uint64_t retval = next_value;
-		       	uint64_t bit = (next_value ^ (next_value >> 5)) & 1;
-		       	next_value = (bit << 22) | (next_value >> 1);
-		       	count++;
-		       	return retval;
-	       	}
-};
-
-const uint64_t LFSR::SEED(1);
-#endif
 
 class RandomOffset: public Offset {
 	private:
@@ -322,9 +295,10 @@ class RandomOffset: public Offset {
 				offset = (lfsr++) - 1;
 			       	if (offset < blocks) return offset;
 			}
-		       	throw std::string("Unreachable code");
+			abort();
 			return 0;
 		}
 };
+
 
 #endif // LFSR_H
