@@ -18,7 +18,7 @@
 
 #define CDB_SIZE     ((uint16_t)16)
 #define SENSE_LENGTH ((uint16_t)32)
-#define STATUS_BLKCNT ((uint64_t)1024)
+#define STATUS_BLKCNT ((uint64_t)2 * 1024 * 1024)
 
 typedef struct tagIO {
 	bool used;
@@ -71,7 +71,51 @@ static double gettime() {
        	return time2double(t);
 }
 
-static void do_io(const int & fd, const uint32_t & blocksize, const uint64_t & offset, const uint16_t & length, IO & io, const char & opcode, const int & dxfer_direction) {
+static unsigned char *RandomData(const uint8_t & key, const uint64_t & address, const uint16_t & blocksize) {
+       	uint64_t x;
+       	if (!blocksize) abort();
+       	if (blocksize % sizeof(x)) abort();
+       	unsigned char * const data = new unsigned char[blocksize];
+       	if (NULL == data) {
+	       	if (logfp) fprintf(logfp, "%s UTC: Out of memory\n", strtime().c_str());
+	       	exit(-4);
+	}
+			if (key) {
+			       	LFSR lfsr(0xFFFFFFFFFFFFFFFFUL, address ? address : address - 1);
+			       	for (uint16_t i = 0; i < blocksize; i += sizeof(x)) {
+					for (uint16_t j = 0; j < (key & 0x3); j++) {
+					       	x = lfsr++;
+					}
+					unsigned char *ptr = (unsigned char *)(&x);
+					unsigned char mask = (unsigned char)(key & 0x3) << 6;
+				       	for (uint16_t j = 0; j < sizeof(x); j++) {
+						unsigned char c = *ptr;
+						c = ((c << 2) >> 2) | mask;
+						*ptr = c;
+						ptr++;
+					}
+				       	memcpy(data + i, &x, sizeof(x));
+			       	}
+			} else {
+			       	memset(data, 0, blocksize);
+			}
+       	return data;
+}
+
+static bool WrongData(const uint8_t & key, const uint64_t & address, const uint16_t & blocksize, const unsigned char * const data) {
+	if (!key) return true;
+	const unsigned char * const xdata = RandomData(key, address, blocksize);
+	for (uint16_t i = 0; i < blocksize; i++) {
+		if (xdata[i] != data[i]) {
+			delete [] xdata;
+			return true;
+		}
+	}
+	delete [] xdata;
+	return false;
+}
+
+static void do_io(const uint8_t & key, const int & fd, const uint32_t & blocksize, const uint64_t & offset, const uint16_t & length, IO & io, const char & opcode, const int & dxfer_direction) {
 	io.used = true;
 	io.start = io.end = gettime();
        	memset(io.cdb, 0, CDB_SIZE);
@@ -90,12 +134,16 @@ static void do_io(const int & fd, const uint32_t & blocksize, const uint64_t & o
        	io_hdr.mx_sb_len       = SENSE_LENGTH;
        	io_hdr.dxfer_direction = dxfer_direction;
        	io_hdr.dxfer_len       = length * blocksize;
-       	io_hdr.dxferp          = new unsigned char[io_hdr.dxfer_len];
-	if (NULL == io_hdr.dxferp) {
-	       	if (logfp) fprintf(logfp, "%s UTC: Out of memory\n", strtime().c_str());
-		exit(-4);
+	if (SG_DXFER_FROM_DEV == io_hdr.dxfer_direction) {
+	       	io_hdr.dxferp = new unsigned char[io_hdr.dxfer_len];
+	       	if (NULL == io_hdr.dxferp) {
+		       	if (logfp) fprintf(logfp, "%s UTC: Out of memory\n", strtime().c_str());
+		       	exit(-4);
+	       	}
+		memset(io_hdr.dxferp, 0, io_hdr.dxfer_len);
+	} else {
+	       	io_hdr.dxferp = RandomData(key, offset, blocksize);
 	}
-	if (SG_DXFER_FROM_DEV) memset(io_hdr.dxferp, 0, io_hdr.dxfer_len);
        	io_hdr.cmdp            = io.cdb;
        	io_hdr.sbp             = io.sb;
        	io_hdr.timeout         = 20000;     /* 20000 millisecs == 20 seconds */
@@ -111,15 +159,15 @@ static void do_io(const int & fd, const uint32_t & blocksize, const uint64_t & o
        	}
 }
 
-static void do_write(const int & fd, const uint32_t & blocksize, const uint64_t & offset, const uint16_t & length, IO & io) {
-       	do_io(fd, blocksize, offset, length, io, 0x8A, SG_DXFER_TO_DEV);
+static void do_write(const uint8_t & key, const int & fd, const uint32_t & blocksize, const uint64_t & offset, const uint16_t & length, IO & io) {
+       	do_io(key, fd, blocksize, offset, length, io, 0x8A, SG_DXFER_TO_DEV);
 }
 
-static void do_read(const int & fd, const uint32_t & blocksize, const uint64_t & offset, const uint16_t & length, IO & io) {
-       	do_io(fd, blocksize, offset, length, io, 0x88, SG_DXFER_FROM_DEV);
+static void do_read(const uint8_t & key, const int & fd, const uint32_t & blocksize, const uint64_t & offset, const uint16_t & length, IO & io) {
+       	do_io(key, fd, blocksize, offset, length, io, 0x88, SG_DXFER_FROM_DEV);
 }
 
-static void do_wait(const int & fd) {
+static void do_wait(const int & fd, const uint16_t & blocksize) {
        	fd_set fds;
        	FD_ZERO(&fds);
 	FD_SET(fd, &fds);
@@ -149,7 +197,6 @@ static void do_wait(const int & fd) {
 			       	exit(-5);
 		       	} 
 			io->end = gettime();
-		       	delete [] (unsigned char *)io_hdr.dxferp;
 			io->used = false;
 			const std::string s(strtime());
 			bool error = false;
@@ -290,6 +337,22 @@ static void do_wait(const int & fd) {
 			       	if (logfp) fprintf(logfp, "%s UTC: CDB   : %s\n", s.c_str(), cdb2str(io->cdb).c_str());
 			       	if (logfp) fprintf(logfp, "%s UTC: Sense : %s\n", s.c_str(), sense2str(io->sb).c_str());
 			}
+		       	if (SG_DXFER_FROM_DEV == io_hdr.dxfer_direction) {
+				const uint8_t key = (((unsigned char *)io_hdr.dxferp)[0] >> 6) & 0x3;
+				printf("%X\n", (uint16_t)(((unsigned char *)io_hdr.dxferp)[0]));
+				exit(0);
+				uint64_t address = 0;
+				memcpy(&address, ((unsigned char *)io_hdr.dxferp) + 12, sizeof(address));
+			       	if (WrongData(key, address, blocksize, (unsigned char *)io_hdr.dxferp)) {
+				       	if (logfp) fprintf(logfp, "%s UTC: Error : Data Miscompare\n", s.c_str());
+				       	if (logfp) fprintf(logfp, "%s UTC: Time  : %lf %lf\n", s.c_str(), io->start, io->end);
+				       	if (logfp) fprintf(logfp, "%s UTC: CDB   : %s\n", s.c_str(), cdb2str(io->cdb).c_str());
+				}
+			} else {
+				printf("%X\n", (uint16_t)(((unsigned char *)io_hdr.dxferp)[0]));
+				exit(0);
+			}
+		       	delete [] ((unsigned char *)io_hdr.dxferp);
 			break;
 	}
 }
@@ -540,7 +603,9 @@ int main(int argc, char **argv) {
 				blocksize = (blocksize << 8) + resp[i];
 			}
        	}
-	if (logfp) fprintf(logfp, "%s UTC: Max LBA %lu Block Size %u\n", strtime().c_str(), max_lba, blocksize);
+	if (logfp) fprintf(logfp, "%s UTC: Max LBA %8lX Block Size %u\n", strtime().c_str(), max_lba, blocksize);
+
+	max_lba = 1024 * 1024 * 8;
 
 	const uint64_t max_offsets = (max_lba + 1) / iosize + (((max_lba + 1) % iosize) ? 1 : 0);
 	Offset *offset = NULL;
@@ -559,19 +624,20 @@ int main(int argc, char **argv) {
 	       	for (uint16_t i = 0; i < qdepth; i++) {
 			if (false == ios[i].used) {
 				if (is_write) {
-					do_write(fd, blocksize, b, c, ios[i]);
+					do_write(key, fd, blocksize, b, c, ios[i]);
 				} else {
-					do_read( fd, blocksize, b, c, ios[i]);
+					do_read( key, fd, blocksize, b, c, ios[i]);
 				}
 				blocks_accessed += c;
 			}
 		}
-		do_wait(fd);
+		do_wait(fd, blocksize);
 		if (blocks_accessed >= next_status_print) {
-		       	if (logfp) fprintf(logfp, "%s UTC: %lu blocks accessed\n", strtime().c_str(), blocks_accessed);
+		       	if (logfp) fprintf(logfp, "%s UTC: %8lX blocks accessed (%6.2lf%% done)\n", strtime().c_str(), blocks_accessed, double(blocks_accessed * 100) / double(max_lba + 1));
+			if (logfp) fflush(logfp);
 		       	next_status_print += STATUS_BLKCNT;
 		}
-	} while ((blocks_accessed < 1024 * 1024) && last != offset->Next());
+	} while (last != offset->Next());
 
 	delete offset;
 	offset = NULL;
@@ -585,6 +651,4 @@ int main(int argc, char **argv) {
 	if (logfp) fclose(logfp);
 
 	return 0;
-
-	key = key;
 }
