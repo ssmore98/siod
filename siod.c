@@ -18,6 +18,7 @@
 
 #define CDB_SIZE     ((uint16_t)16)
 #define SENSE_LENGTH ((uint16_t)32)
+#define STATUS_BLKCNT ((uint64_t)1024)
 
 typedef struct tagIO {
 	bool used;
@@ -299,6 +300,7 @@ static void print_usage(const std::string p) {
 }
 
 static void getout(int s) {
+	if (logfp) fprintf(logfp, "%s UTC: Caught signal (%d) %s\n", strtime().c_str(), s, strsignal(s));
 	if (logfp) fprintf(logfp, "%s UTC: %lu blocks accessed\n", strtime().c_str(), blocks_accessed);
 	if (logfp) fclose(logfp);
 	exit(-1);
@@ -549,6 +551,7 @@ int main(int argc, char **argv) {
 		return -4;
 	}
 	const uint64_t last = *offset;
+	uint64_t next_status_print = STATUS_BLKCNT;
 	do {
 		const uint64_t a = *offset;
 		const uint64_t b =  a * iosize;
@@ -564,6 +567,10 @@ int main(int argc, char **argv) {
 			}
 		}
 		do_wait(fd);
+		if (blocks_accessed >= next_status_print) {
+		       	if (logfp) fprintf(logfp, "%s UTC: %lu blocks accessed\n", strtime().c_str(), blocks_accessed);
+		       	next_status_print += STATUS_BLKCNT;
+		}
 	} while ((blocks_accessed < 1024 * 1024) && last != offset->Next());
 
 	delete offset;
