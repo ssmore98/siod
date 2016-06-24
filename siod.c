@@ -28,8 +28,9 @@ typedef struct tagIO {
 	unsigned char sb[SENSE_LENGTH];
 } IO;
 
-static FILE *logfp = NULL;
-static uint64_t blocks_accessed = 0;
+static FILE     *logfp           = NULL;
+static uint64_t  blocks_accessed = 0;
+static bool      data_miscompare = false;
 
 
 static std::string buffer2str(const unsigned char * const buf, const uint16_t & sz) {
@@ -347,6 +348,7 @@ static void do_wait(const int & fd, const uint16_t & blocksize) {
 				       	if (logfp) fprintf(logfp, "%s UTC: Error : Data Miscompare\n", s.c_str());
 				       	if (logfp) fprintf(logfp, "%s UTC: Time  : %lf %lf\n", s.c_str(), io->start, io->end);
 				       	if (logfp) fprintf(logfp, "%s UTC: CDB   : %s\n", s.c_str(), cdb2str(io->cdb).c_str());
+					data_miscompare = true;
 				}
 			}
 		       	delete [] ((unsigned char *)io_hdr.dxferp);
@@ -374,6 +376,7 @@ static void getout(int s) {
  * -3 : error accessing the device
  * -4 : out of memory
  * -5 : cannot wait on I/Os, problem with pselect system call
+ * -6 : data miscompare
  */
 int main(int argc, char **argv) {
 
@@ -644,6 +647,8 @@ int main(int argc, char **argv) {
 	if (logfp) fprintf(logfp, "%s UTC: %lu blocks accessed\n", strtime().c_str(), blocks_accessed);
 
 	if (logfp) fclose(logfp);
+
+	if (data_miscompare) return -6;
 
 	return 0;
 }
