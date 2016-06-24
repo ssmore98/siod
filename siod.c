@@ -414,7 +414,7 @@ static void do_wait(const uint8_t & key, const int & fd, const uint16_t & blocks
 			}
 		       	if (SG_DXFER_FROM_DEV == io_hdr.dxfer_direction) {
 				uint8_t new_key = key;
-				if (!new_ key) new_key = (((unsigned char *)io_hdr.dxferp)[0] >> 6) & 0x3;
+				if (!new_key) new_key = (((unsigned char *)io_hdr.dxferp)[0] >> 6) & 0x3;
 				uint64_t address = 0;
 			       	for (unsigned int j = 0; j < 8; j++) {
 				       	address = (address << 8) | io_hdr.cmdp[2 + j];
@@ -710,11 +710,11 @@ int main(int argc, char **argv) {
 	const uint64_t last = *offset;
 	uint64_t next_status_print = STATUS_BLKCNT;
 	do {
-		const uint64_t a = *offset;
-		const uint64_t b =  a * iosize;
-		const uint32_t c =  (b + iosize - 1 <= max_lba) ? iosize : max_lba - b + 1;
 	       	for (uint16_t i = 0; i < qdepth; i++) {
 			if (false == ios[i].used) {
+				const uint64_t a = *offset;
+				const uint64_t b =  a * iosize;
+				const uint32_t c =  (b + iosize - 1 <= max_lba) ? iosize : max_lba - b + 1;
 				if (is_write) {
 					do_write(key, fd, blocksize, b, c, ios[i]);
 				} else {
