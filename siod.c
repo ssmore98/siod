@@ -227,7 +227,7 @@ static void do_read(const uint8_t & key, const int & fd, const uint32_t & blocks
        	do_io(key, fd, blocksize, offset, length, io, 0x88, SG_DXFER_FROM_DEV);
 }
 
-static void do_wait(const int & fd, const uint16_t & blocksize) {
+static void do_wait(const uint8_t & key, const int & fd, const uint16_t & blocksize) {
        	fd_set fds;
        	FD_ZERO(&fds);
 	FD_SET(fd, &fds);
@@ -413,12 +413,13 @@ static void do_wait(const int & fd, const uint16_t & blocksize) {
 			       	if (logfp) gzprintf(logfp, "%s UTC: Sense : %s\n", s.c_str(), sense2str(io->sb).c_str());
 			}
 		       	if (SG_DXFER_FROM_DEV == io_hdr.dxfer_direction) {
-				const uint8_t key = (((unsigned char *)io_hdr.dxferp)[0] >> 6) & 0x3;
+				uint8_t new_key = key;
+				if (!new_ key) new_key = (((unsigned char *)io_hdr.dxferp)[0] >> 6) & 0x3;
 				uint64_t address = 0;
 			       	for (unsigned int j = 0; j < 8; j++) {
 				       	address = (address << 8) | io_hdr.cmdp[2 + j];
 			       	}
-			       	if (WrongData(key, address, blocksize, (unsigned char *)io_hdr.dxferp)) {
+			       	if (WrongData(new_key, address, blocksize, (unsigned char *)io_hdr.dxferp)) {
 				       	if (logfp) gzprintf(logfp, "%s UTC: Error : Data Miscompare\n", s.c_str());
 				       	if (logfp) gzprintf(logfp, "%s UTC: Time  : %lf %lf\n", s.c_str(), io->start, io->end);
 				       	if (logfp) gzprintf(logfp, "%s UTC: CDB   : %s\n", s.c_str(), cdb2str(io->cdb).c_str());
@@ -722,7 +723,7 @@ int main(int argc, char **argv) {
 				blocks_accessed += c;
 			}
 		}
-		do_wait(fd, blocksize);
+		do_wait(key, fd, blocksize);
 		if (blocks_accessed >= next_status_print) {
 		       	if (logfp) gzprintf(logfp, "%s UTC: %8lX blocks accessed (%6.2lf%% done)\n", strtime().c_str(), blocks_accessed, double(blocks_accessed * 100) / double(max_lba + 1));
 		       	next_status_print += STATUS_BLKCNT;
