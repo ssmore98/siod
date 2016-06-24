@@ -10,6 +10,7 @@
 #include <signal.h>
 #include <unistd.h>
 #include <sys/time.h>
+#include <zlib.h>
 
 #include <string>
 #include <iostream>
@@ -28,9 +29,9 @@ typedef struct tagIO {
 	unsigned char sb[SENSE_LENGTH];
 } IO;
 
-static FILE     *logfp           = NULL;
-static uint64_t  blocks_accessed = 0;
-static bool      data_miscompare = false;
+static gzFile   logfp           = 0;
+static uint64_t blocks_accessed = 0;
+static bool     data_miscompare = false;
 
 
 static std::string buffer2str(const unsigned char * const buf, const uint16_t & sz) {
@@ -78,7 +79,9 @@ static unsigned char *RandomData(const uint8_t & key, const uint64_t & address, 
        	if (blocksize % sizeof(x)) abort();
        	unsigned char * const data = new unsigned char[blocksize];
        	if (NULL == data) {
-	       	if (logfp) fprintf(logfp, "%s UTC: Out of memory\n", strtime().c_str());
+	       	if (logfp) gzprintf(logfp, "%s UTC: Out of memory\n", strtime().c_str());
+		else        fprintf(stderr, "%s UTC: Out of memory\n", strtime().c_str());
+		if (logfp) gzclose(logfp);
 	       	exit(-4);
 	}
 	if (key) {
@@ -138,7 +141,9 @@ static void do_io(const uint8_t & key, const int & fd, const uint32_t & blocksiz
 	if (SG_DXFER_FROM_DEV == io_hdr.dxfer_direction) {
 	       	io_hdr.dxferp = new unsigned char[io_hdr.dxfer_len];
 	       	if (NULL == io_hdr.dxferp) {
-		       	if (logfp) fprintf(logfp, "%s UTC: Out of memory\n", strtime().c_str());
+		       	if (logfp) gzprintf(logfp, "%s UTC: Out of memory\n", strtime().c_str());
+			else        fprintf(stderr, "%s UTC: Out of memory\n", strtime().c_str());
+		       	if (logfp) gzclose(logfp);
 		       	exit(-4);
 	       	}
 		memset(io_hdr.dxferp, 0, io_hdr.dxfer_len);
@@ -153,9 +158,9 @@ static void do_io(const uint8_t & key, const int & fd, const uint32_t & blocksiz
 	io_hdr.usr_ptr         = &io;
 	if (-1 == write(fd, &io_hdr, sizeof(sg_io_hdr_t))) {
 		const std::string s(strtime());
-	       	if (logfp) fprintf(logfp, "%s UTC: Error : Cannot issue I/O ((write) %s)\n", s.c_str(), strerror(errno));
-	       	if (logfp) fprintf(logfp, "%s UTC: Time  : %lf %lf\n", s.c_str(), io.start, io.end);
-	       	if (logfp) fprintf(logfp, "%s UTC: CDB   : %s\n", s.c_str(), cdb2str(io.cdb).c_str());
+	       	if (logfp) gzprintf(logfp, "%s UTC: Error : Cannot issue I/O ((write) %s)\n", s.c_str(), strerror(errno));
+	       	if (logfp) gzprintf(logfp, "%s UTC: Time  : %lf %lf\n", s.c_str(), io.start, io.end);
+	       	if (logfp) gzprintf(logfp, "%s UTC: CDB   : %s\n", s.c_str(), cdb2str(io.cdb).c_str());
 		io.used = false;
        	}
 }
@@ -175,26 +180,36 @@ static void do_wait(const int & fd, const uint16_t & blocksize) {
 	switch (pselect(fd + 1, &fds, NULL, NULL, NULL, NULL)) {
 		case -1:
 			/* cannot wait on I/O */
-		       	if (logfp) fprintf(logfp, "%s UTC: Error : Unable to wait on I/O ((pselect) %s)\n", strtime().c_str(), strerror(errno));
+		       	if (logfp) gzprintf(logfp, "%s UTC: Error : Unable to wait on I/O ((pselect) %s)\n", strtime().c_str(), strerror(errno));
+			else        fprintf(stderr, "%s UTC: Error : Unable to wait on I/O ((pselect) %s)\n", strtime().c_str(), strerror(errno));
+		       	if (logfp) gzclose(logfp);
 			exit(-5);
 		case 0:
 			/* severe error, control should never come here */
-		       	if (logfp) fprintf(logfp, "%s UTC: Error : Unable to wait on I/O\n", strtime().c_str());
+		       	if (logfp) gzprintf(logfp, "%s UTC: Error : Unable to wait on I/O\n", strtime().c_str());
+			else        fprintf(stderr, "%s UTC: Error : Unable to wait on I/O\n", strtime().c_str());
+		       	if (logfp) gzclose(logfp);
 			exit(-5);
 		default:
 			if (!FD_ISSET(fd, &fds)) {
-			       	if (logfp) fprintf(logfp, "%s UTC: Error : Unable to wait on I/O (FD_ISSET)\n", strtime().c_str());
+			       	if (logfp) gzprintf(logfp, "%s UTC: Error : Unable to wait on I/O (FD_ISSET)\n", strtime().c_str());
+				else        fprintf(stderr, "%s UTC: Error : Unable to wait on I/O (FD_ISSET)\n", strtime().c_str());
+			       	if (logfp) gzclose(logfp);
 			       	exit(-5);
 			}
 		       	sg_io_hdr_t io_hdr;
 		       	memset(&io_hdr, 0, sizeof(sg_io_hdr_t));
 		       	if (-1 == read(fd, &io_hdr, sizeof(sg_io_hdr_t))) {
-			       	if (logfp) fprintf(logfp, "%s UTC: Error : Unable to wait on I/O (read)\n", strtime().c_str());
+			       	if (logfp) gzprintf(logfp, "%s UTC: Error : Unable to wait on I/O (read)\n", strtime().c_str());
+				else        fprintf(stderr, "%s UTC: Error : Unable to wait on I/O (read)\n", strtime().c_str());
+			       	if (logfp) gzclose(logfp);
 			       	exit(-5);
 		       	} 
 			IO * const io = (IO *)(io_hdr.usr_ptr);
 			if (NULL == io) {
-			       	if (logfp) fprintf(logfp, "%s UTC: Error : Unable to wait on I/O (usr_ptr)\n", strtime().c_str());
+			       	if (logfp) gzprintf(logfp, "%s UTC: Error : Unable to wait on I/O (usr_ptr)\n", strtime().c_str());
+				else        fprintf(stderr, "%s UTC: Error : Unable to wait on I/O (usr_ptr)\n", strtime().c_str());
+			       	if (logfp) gzclose(logfp);
 			       	exit(-5);
 		       	} 
 			io->end = gettime();
@@ -206,39 +221,39 @@ static void do_wait(const int & fd, const uint16_t & blocksize) {
 					break;
 			       	case CHECK_CONDITION:
 					error = true;
-				       	if (logfp) fprintf(logfp, "%s UTC: Error : Check Condition\n", s.c_str());
+				       	if (logfp) gzprintf(logfp, "%s UTC: Error : Check Condition\n", s.c_str());
 					break;
 			       	case CONDITION_GOOD:
 					error = true;
-				       	if (logfp) fprintf(logfp, "%s UTC: Error : Condition Good\n", s.c_str());
+				       	if (logfp) gzprintf(logfp, "%s UTC: Error : Condition Good\n", s.c_str());
 					break;
 			       	case INTERMEDIATE_GOOD:
 					error = true;
-				       	if (logfp) fprintf(logfp, "%s UTC: Error : Intermediate Good\n", s.c_str());
+				       	if (logfp) gzprintf(logfp, "%s UTC: Error : Intermediate Good\n", s.c_str());
 					break;
 			       	case INTERMEDIATE_C_GOOD:
 					error = true;
-				       	if (logfp) fprintf(logfp, "%s UTC: Error : Intermediate C Good\n", s.c_str());
+				       	if (logfp) gzprintf(logfp, "%s UTC: Error : Intermediate C Good\n", s.c_str());
 					break;
 			       	case BUSY:
 					error = true;
-				       	if (logfp) fprintf(logfp, "%s UTC: Error : BUSY\n", s.c_str());
+				       	if (logfp) gzprintf(logfp, "%s UTC: Error : BUSY\n", s.c_str());
 					break;
 			       	case RESERVATION_CONFLICT:
 					error = true;
-				       	if (logfp) fprintf(logfp, "%s UTC: Error : Reservation Conflict\n", s.c_str());
+				       	if (logfp) gzprintf(logfp, "%s UTC: Error : Reservation Conflict\n", s.c_str());
 					break;
 			       	case COMMAND_TERMINATED:
 					error = true;
-				       	if (logfp) fprintf(logfp, "%s UTC: Error : Command Terminated\n", s.c_str());
+				       	if (logfp) gzprintf(logfp, "%s UTC: Error : Command Terminated\n", s.c_str());
 					break;
 			       	case QUEUE_FULL:
 					error = true;
-				       	if (logfp) fprintf(logfp, "%s UTC: Error : Queue Full\n", s.c_str());
+				       	if (logfp) gzprintf(logfp, "%s UTC: Error : Queue Full\n", s.c_str());
 					break;
 				default:
 					error = true;
-				       	if (logfp) fprintf(logfp, "%s UTC: Error : Unknown Condition (0x%02X)\n", s.c_str(), io_hdr.masked_status);
+				       	if (logfp) gzprintf(logfp, "%s UTC: Error : Unknown Condition (0x%02X)\n", s.c_str(), io_hdr.masked_status);
 					break;
 			}
 			switch (io_hdr.host_status) {
@@ -246,51 +261,51 @@ static void do_wait(const int & fd, const uint16_t & blocksize) {
 					break;
 			       	case SG_LIB_DID_NO_CONNECT: 
 					error = true;
-				       	if (logfp) fprintf(logfp, "%s UTC: Error : HOST: UNABLE TO CONNECT BEFORE TIMEOUT\n", s.c_str());
+				       	if (logfp) gzprintf(logfp, "%s UTC: Error : HOST: UNABLE TO CONNECT BEFORE TIMEOUT\n", s.c_str());
 					break;
 			       	case SG_LIB_DID_BUS_BUSY: 
 					error = true;
-				       	if (logfp) fprintf(logfp, "%s UTC: Error : HOST: BUS BUSY TILL TIMEOUT\n", s.c_str());
+				       	if (logfp) gzprintf(logfp, "%s UTC: Error : HOST: BUS BUSY TILL TIMEOUT\n", s.c_str());
 					break;
 			       	case SG_LIB_DID_TIME_OUT: 
 					error = true;
-				       	if (logfp) fprintf(logfp, "%s UTC: Error : HOST: TIMEOUT\n", s.c_str());
+				       	if (logfp) gzprintf(logfp, "%s UTC: Error : HOST: TIMEOUT\n", s.c_str());
 					break;
 			       	case SG_LIB_DID_BAD_TARGET: 
 					error = true;
-				       	if (logfp) fprintf(logfp, "%s UTC: Error : HOST: BAD TARGET\n", s.c_str());
+				       	if (logfp) gzprintf(logfp, "%s UTC: Error : HOST: BAD TARGET\n", s.c_str());
 					break;
 			       	case SG_LIB_DID_ABORT: 
 					error = true;
-				       	if (logfp) fprintf(logfp, "%s UTC: Error : HOST: ABORT\n", s.c_str());
+				       	if (logfp) gzprintf(logfp, "%s UTC: Error : HOST: ABORT\n", s.c_str());
 					break;
 			       	case SG_LIB_DID_PARITY: 
 					error = true;
-				       	if (logfp) fprintf(logfp, "%s UTC: Error : HOST: PARITY ERROR ON SCSI BUS\n", s.c_str());
+				       	if (logfp) gzprintf(logfp, "%s UTC: Error : HOST: PARITY ERROR ON SCSI BUS\n", s.c_str());
 					break;
 			       	case SG_LIB_DID_ERROR: 
 					error = true;
-				       	if (logfp) fprintf(logfp, "%s UTC: Error : HOST: INTERNAL ERROR\n", s.c_str());
+				       	if (logfp) gzprintf(logfp, "%s UTC: Error : HOST: INTERNAL ERROR\n", s.c_str());
 					break;
 			       	case SG_LIB_DID_RESET: 
 					error = true;
-				       	if (logfp) fprintf(logfp, "%s UTC: Error : HOST: RESET\n", s.c_str());
+				       	if (logfp) gzprintf(logfp, "%s UTC: Error : HOST: RESET\n", s.c_str());
 					break;
 			       	case SG_LIB_DID_BAD_INTR: 
 					error = true;
-				       	if (logfp) fprintf(logfp, "%s UTC: Error : HOST: RECEIVED AN UNEXPECTED  INTERRUPT\n", s.c_str());
+				       	if (logfp) gzprintf(logfp, "%s UTC: Error : HOST: RECEIVED AN UNEXPECTED  INTERRUPT\n", s.c_str());
 					break;
 			       	case SG_LIB_DID_PASSTHROUGH: 
 					error = true;
-				       	if (logfp) fprintf(logfp, "%s UTC: Error : HOST: FORCE COMMAND PAST MID-LEVEL\n", s.c_str());
+				       	if (logfp) gzprintf(logfp, "%s UTC: Error : HOST: FORCE COMMAND PAST MID-LEVEL\n", s.c_str());
 					break;
 			       	case SG_LIB_DID_SOFT_ERROR: 
 					error = true;
-				       	if (logfp) fprintf(logfp, "%s UTC: Error : HOST: THE LOW LEVEL DRIVER WANTS A RETRY\n", s.c_str());
+				       	if (logfp) gzprintf(logfp, "%s UTC: Error : HOST: THE LOW LEVEL DRIVER WANTS A RETRY\n", s.c_str());
 					break;
 	       			default:
 					error = true;
-				       	if (logfp) fprintf(logfp, "%s UTC: Error : UNKNOWN HOST STATUS (0x%02X)\n", s.c_str(), io_hdr.host_status);
+				       	if (logfp) gzprintf(logfp, "%s UTC: Error : UNKNOWN HOST STATUS (0x%02X)\n", s.c_str(), io_hdr.host_status);
 					break;
 			}
 			switch (io_hdr.driver_status & 0xF) {
@@ -298,45 +313,45 @@ static void do_wait(const int & fd, const uint16_t & blocksize) {
 					break;
 				case SG_LIB_DRIVER_BUSY: 
 					error = true;
-				       	if (logfp) fprintf(logfp, "%s UTC: Error : DRIVER BUSY\n", s.c_str());
+				       	if (logfp) gzprintf(logfp, "%s UTC: Error : DRIVER BUSY\n", s.c_str());
 					break;
 				case SG_LIB_DRIVER_SOFT: 
 					error = true;
-				       	if (logfp) fprintf(logfp, "%s UTC: Error : DRIVER SOFTWARE ERROR\n", s.c_str());
+				       	if (logfp) gzprintf(logfp, "%s UTC: Error : DRIVER SOFTWARE ERROR\n", s.c_str());
 					break;
 				case SG_LIB_DRIVER_MEDIA: 
 					error = true;
-				       	if (logfp) fprintf(logfp, "%s UTC: Error : DRIVER MEDIA ERROR\n", s.c_str());
+				       	if (logfp) gzprintf(logfp, "%s UTC: Error : DRIVER MEDIA ERROR\n", s.c_str());
 					break;
 				case SG_LIB_DRIVER_ERROR: 
 					error = true;
-				       	if (logfp) fprintf(logfp, "%s UTC: Error : DRIVER ERROR\n", s.c_str());
+				       	if (logfp) gzprintf(logfp, "%s UTC: Error : DRIVER ERROR\n", s.c_str());
 					break;
 				case SG_LIB_DRIVER_INVALID: 
 					error = true;
-				       	if (logfp) fprintf(logfp, "%s UTC: Error : DRIVER INVALID ERROR\n", s.c_str());
+				       	if (logfp) gzprintf(logfp, "%s UTC: Error : DRIVER INVALID ERROR\n", s.c_str());
 					break;
 				case SG_LIB_DRIVER_TIMEOUT: 
 					error = true;
-				       	if (logfp) fprintf(logfp, "%s UTC: Error : DRIVER TIMEOUT ERROR\n", s.c_str());
+				       	if (logfp) gzprintf(logfp, "%s UTC: Error : DRIVER TIMEOUT ERROR\n", s.c_str());
 					break;
 				case SG_LIB_DRIVER_HARD: 
 					error = true;
-				       	if (logfp) fprintf(logfp, "%s UTC: Error : DRIVER HARDWARE ERROR\n", s.c_str());
+				       	if (logfp) gzprintf(logfp, "%s UTC: Error : DRIVER HARDWARE ERROR\n", s.c_str());
 					break;
 				case SG_LIB_DRIVER_SENSE: 
 					error = true;
-				       	if (logfp) fprintf(logfp, "%s UTC: Error : DRIVER SENSE ERROR\n", s.c_str());
+				       	if (logfp) gzprintf(logfp, "%s UTC: Error : DRIVER SENSE ERROR\n", s.c_str());
 					break;
 				default:
 					error = true;
-				       	if (logfp) fprintf(logfp, "%s UTC: Error : UNKNOWN DRIVER STATUS (0x%02X)\n", s.c_str(), io_hdr.driver_status);
+				       	if (logfp) gzprintf(logfp, "%s UTC: Error : UNKNOWN DRIVER STATUS (0x%02X)\n", s.c_str(), io_hdr.driver_status);
 					break;
 			}
 			if (error) {
-			       	if (logfp) fprintf(logfp, "%s UTC: Time  : %lf %lf\n", s.c_str(), io->start, io->end);
-			       	if (logfp) fprintf(logfp, "%s UTC: CDB   : %s\n", s.c_str(), cdb2str(io->cdb).c_str());
-			       	if (logfp) fprintf(logfp, "%s UTC: Sense : %s\n", s.c_str(), sense2str(io->sb).c_str());
+			       	if (logfp) gzprintf(logfp, "%s UTC: Time  : %lf %lf\n", s.c_str(), io->start, io->end);
+			       	if (logfp) gzprintf(logfp, "%s UTC: CDB   : %s\n", s.c_str(), cdb2str(io->cdb).c_str());
+			       	if (logfp) gzprintf(logfp, "%s UTC: Sense : %s\n", s.c_str(), sense2str(io->sb).c_str());
 			}
 		       	if (SG_DXFER_FROM_DEV == io_hdr.dxfer_direction) {
 				const uint8_t key = (((unsigned char *)io_hdr.dxferp)[0] >> 6) & 0x3;
@@ -345,9 +360,9 @@ static void do_wait(const int & fd, const uint16_t & blocksize) {
 				       	address = (address << 8) | io_hdr.cmdp[2 + j];
 			       	}
 			       	if (WrongData(key, address, blocksize, (unsigned char *)io_hdr.dxferp)) {
-				       	if (logfp) fprintf(logfp, "%s UTC: Error : Data Miscompare\n", s.c_str());
-				       	if (logfp) fprintf(logfp, "%s UTC: Time  : %lf %lf\n", s.c_str(), io->start, io->end);
-				       	if (logfp) fprintf(logfp, "%s UTC: CDB   : %s\n", s.c_str(), cdb2str(io->cdb).c_str());
+				       	if (logfp) gzprintf(logfp, "%s UTC: Error : Data Miscompare\n", s.c_str());
+				       	if (logfp) gzprintf(logfp, "%s UTC: Time  : %lf %lf\n", s.c_str(), io->start, io->end);
+				       	if (logfp) gzprintf(logfp, "%s UTC: CDB   : %s\n", s.c_str(), cdb2str(io->cdb).c_str());
 					data_miscompare = true;
 				}
 			}
@@ -357,14 +372,17 @@ static void do_wait(const int & fd, const uint16_t & blocksize) {
 }
 
 static void print_usage(const std::string p) {
-	fprintf(logfp, "Usage:\n\n%s [rw] [rs] [0-9]+ [0-9]+ [0123] /dev/sg[0-9]+ <logfile>\n", p.c_str());
+	fprintf(stderr, "Usage:\n\n%s [rw] [rs] [0-9]+ [0-9]+ [0123] /dev/sg[0-9]+ <logfile>\n", p.c_str());
+       	if (logfp) gzclose(logfp);
 	exit(-2);
 }
 
 static void getout(int s) {
-	if (logfp) fprintf(logfp, "%s UTC: Caught signal (%d) %s\n", strtime().c_str(), s, strsignal(s));
-	if (logfp) fprintf(logfp, "%s UTC: %lu blocks accessed\n", strtime().c_str(), blocks_accessed);
-	if (logfp) fclose(logfp);
+	if (logfp) gzprintf(logfp, "%s UTC: Caught signal (%d) %s\n", strtime().c_str(), s, strsignal(s));
+	else        fprintf(stderr, "%s UTC: Caught signal (%d) %s\n", strtime().c_str(), s, strsignal(s));
+	if (logfp) gzprintf(logfp, "%s UTC: %lu blocks accessed\n", strtime().c_str(), blocks_accessed);
+	else        fprintf(stderr, "%s UTC: %lu blocks accessed\n", strtime().c_str(), blocks_accessed);
+	if (logfp) gzclose(logfp);
 	exit(-1);
 }
 
@@ -380,102 +398,100 @@ static void getout(int s) {
  */
 int main(int argc, char **argv) {
 
-	if (!logfp) logfp = stderr;
-
 	if (SIG_ERR == signal(SIGHUP, SIG_IGN)) {
-		fprintf(logfp, "Cannot manage SIGHUP: %s\n", strerror(errno));
+		fprintf(stderr, "Cannot manage SIGHUP: %s\n", strerror(errno));
 		return -1;
 	}
 	if (SIG_ERR == signal(SIGINT, getout)) {
-		fprintf(logfp, "Cannot manage SIGINT: %s\n", strerror(errno));
+		fprintf(stderr, "Cannot manage SIGINT: %s\n", strerror(errno));
 		return -1;
 	}
 	if (SIG_ERR == signal(SIGQUIT, getout)) {
-		fprintf(logfp, "Cannot manage SIGQUIT: %s\n", strerror(errno));
+		fprintf(stderr, "Cannot manage SIGQUIT: %s\n", strerror(errno));
 		return -1;
 	}
 	if (SIG_ERR == signal(SIGILL, getout)) {
-		fprintf(logfp, "Cannot manage SIGILL: %s\n", strerror(errno));
+		fprintf(stderr, "Cannot manage SIGILL: %s\n", strerror(errno));
 		return -1;
 	}
 	if (SIG_ERR == signal(SIGABRT, getout)) {
-		fprintf(logfp, "Cannot manage SIGABRT: %s\n", strerror(errno));
+		fprintf(stderr, "Cannot manage SIGABRT: %s\n", strerror(errno));
 		return -1;
 	}
 	if (SIG_ERR == signal(SIGFPE, getout)) {
-		fprintf(logfp, "Cannot manage SIGFPE: %s\n", strerror(errno));
+		fprintf(stderr, "Cannot manage SIGFPE: %s\n", strerror(errno));
 		return -1;
 	}
 	if (SIG_ERR == signal(SIGSEGV, getout)) {
-		fprintf(logfp, "Cannot manage SIGSEGV: %s\n", strerror(errno));
+		fprintf(stderr, "Cannot manage SIGSEGV: %s\n", strerror(errno));
 		return -1;
 	}
 	if (SIG_ERR == signal(SIGPIPE, getout)) {
-		fprintf(logfp, "Cannot manage SIGPIPE: %s\n", strerror(errno));
+		fprintf(stderr, "Cannot manage SIGPIPE: %s\n", strerror(errno));
 		return -1;
 	}
 	if (SIG_ERR == signal(SIGALRM, getout)) {
-		fprintf(logfp, "Cannot manage SIGALRM: %s\n", strerror(errno));
+		fprintf(stderr, "Cannot manage SIGALRM: %s\n", strerror(errno));
 		return -1;
 	}
 	if (SIG_ERR == signal(SIGTERM, getout)) {
-		fprintf(logfp, "Cannot manage SIGTERM: %s\n", strerror(errno));
+		fprintf(stderr, "Cannot manage SIGTERM: %s\n", strerror(errno));
 		return -1;
 	}
 	if (SIG_ERR == signal(SIGUSR1, SIG_IGN)) {
-		fprintf(logfp, "Cannot manage SIGUSR1: %s\n", strerror(errno));
+		fprintf(stderr, "Cannot manage SIGUSR1: %s\n", strerror(errno));
 		return -1;
 	}
 	if (SIG_ERR == signal(SIGUSR2, SIG_IGN)) {
-		fprintf(logfp, "Cannot manage SIGUSR2: %s\n", strerror(errno));
+		fprintf(stderr, "Cannot manage SIGUSR2: %s\n", strerror(errno));
 		return -1;
 	}
 	if (SIG_ERR == signal(SIGCHLD, SIG_IGN)) {
-		fprintf(logfp, "Cannot manage SIGCHLD: %s\n", strerror(errno));
+		fprintf(stderr, "Cannot manage SIGCHLD: %s\n", strerror(errno));
 		return -1;
 	}
 	if (SIG_ERR == signal(SIGTTIN, SIG_IGN)) {
-		fprintf(logfp, "Cannot manage SIGTTIN: %s\n", strerror(errno));
+		fprintf(stderr, "Cannot manage SIGTTIN: %s\n", strerror(errno));
 		return -1;
 	}
 	if (SIG_ERR == signal(SIGTTOU, SIG_IGN)) {
-		fprintf(logfp, "Cannot manage SIGTTOU: %s\n", strerror(errno));
+		fprintf(stderr, "Cannot manage SIGTTOU: %s\n", strerror(errno));
 		return -1;
 	}
 	if (SIG_ERR == signal(SIGBUS, getout)) {
-		fprintf(logfp, "Cannot manage SIGBUS: %s\n", strerror(errno));
+		fprintf(stderr, "Cannot manage SIGBUS: %s\n", strerror(errno));
 		return -1;
 	}
 	if (SIG_ERR == signal(SIGPOLL, getout)) {
-		fprintf(logfp, "Cannot manage SIGPOLL: %s\n", strerror(errno));
+		fprintf(stderr, "Cannot manage SIGPOLL: %s\n", strerror(errno));
 		return -1;
 	}
 	if (SIG_ERR == signal(SIGPROF, SIG_IGN)) {
-		fprintf(logfp, "Cannot manage SIGPROF: %s\n", strerror(errno));
+		fprintf(stderr, "Cannot manage SIGPROF: %s\n", strerror(errno));
 		return -1;
 	}
 	if (SIG_ERR == signal(SIGSYS, getout)) {
-		fprintf(logfp, "Cannot manage SIGSYS: %s\n", strerror(errno));
+		fprintf(stderr, "Cannot manage SIGSYS: %s\n", strerror(errno));
 		return -1;
 	}
 	if (SIG_ERR == signal(SIGTRAP, getout)) {
-		fprintf(logfp, "Cannot manage SIGTRAP: %s\n", strerror(errno));
+		fprintf(stderr, "Cannot manage SIGTRAP: %s\n", strerror(errno));
 		return -1;
 	}
 	if (SIG_ERR == signal(SIGURG, SIG_IGN)) {
-		fprintf(logfp, "Cannot manage SIGURG: %s\n", strerror(errno));
+		fprintf(stderr, "Cannot manage SIGURG: %s\n", strerror(errno));
 		return -1;
 	}
 	if (SIG_ERR == signal(SIGVTALRM, getout)) {
-		fprintf(logfp, "Cannot manage SIGVTALRM: %s\n", strerror(errno));
+		fprintf(stderr, "Cannot manage SIGVTALRM: %s\n", strerror(errno));
 		return -1;
 	}
 	if (SIG_ERR == signal(SIGXCPU, getout)) {
-		fprintf(logfp, "Cannot manage SIGXCPU: %s\n", strerror(errno));
+		fprintf(stderr, "Cannot manage SIGXCPU: %s\n", strerror(errno));
 		return -1;
 	}
 	if (SIG_ERR == signal(SIGXFSZ, getout)) {
-		fprintf(logfp, "Cannot manage SIGXFSZ: %s\n", strerror(errno));
+		fprintf(stderr, "Cannot manage SIGXFSZ: %s\n", strerror(errno));
 		return -1;
 	}
 	/* NOT DEFINED
@@ -485,15 +501,15 @@ int main(int argc, char **argv) {
 	}
 	*/
 	if (SIG_ERR == signal(SIGSTKFLT, getout)) {
-		fprintf(logfp, "Cannot manage SIGSTKFLT: %s\n", strerror(errno));
+		fprintf(stderr, "Cannot manage SIGSTKFLT: %s\n", strerror(errno));
 		return -1;
 	}
 	if (SIG_ERR == signal(SIGIO, SIG_IGN)) {
-		fprintf(logfp, "Cannot manage SIGIO: %s\n", strerror(errno));
+		fprintf(stderr, "Cannot manage SIGIO: %s\n", strerror(errno));
 		return -1;
 	}
 	if (SIG_ERR == signal(SIGPWR, getout)) {
-		fprintf(logfp, "Cannot manage SIGPWR: %s\n", strerror(errno));
+		fprintf(stderr, "Cannot manage SIGPWR: %s\n", strerror(errno));
 		return -1;
 	} 
 	/* NOT DEFINED
@@ -503,7 +519,7 @@ int main(int argc, char **argv) {
 	}
 	*/
 	if (SIG_ERR == signal(SIGWINCH, SIG_IGN)) {
-		fprintf(logfp, "Cannot manage SIGWINCH: %s\n", strerror(errno));
+		fprintf(stderr, "Cannot manage SIGWINCH: %s\n", strerror(errno));
 		return -1;
 	}
 	if (argc != 8) {
@@ -535,17 +551,20 @@ int main(int argc, char **argv) {
 		default:
 		       	print_usage(argv[0]);
 	}
+
 	uint16_t iosize = 0;
 	if (1 != sscanf(argv[3], "%hu", &iosize) || !iosize) {
 	       	print_usage(argv[0]);
 	}
+
 	uint16_t qdepth = 0;
 	if (1 != sscanf(argv[4], "%hu", &qdepth) || !qdepth || (qdepth > 128)) {
 	       	print_usage(argv[0]);
 	}
+
 	IO *ios = new IO[qdepth];
 	if (NULL == ios) {
-		fprintf(logfp, "Out of memory.\n");
+		fprintf(stderr, "Out of memory.\n");
 		return -4;
 	}
 	for (uint16_t i = 0; i < qdepth; i++) {
@@ -571,19 +590,25 @@ int main(int argc, char **argv) {
 		default:
 		       	print_usage(argv[0]);
 	}
+
 	const std::string device(argv[6]);
-	const std::string logfilename(argv[7]);
 
-	logfp = fopen(logfilename.c_str(), "w");
-	if (!logfp) fprintf(stderr, "Unable to open logfile %s: %s", logfilename.c_str(), strerror(errno));
-	if (!logfp) logfp = stderr;
-
-
-	if (logfp) fprintf(logfp, "%s UTC: %s %c %c %hu %hu %hu %s %s\n", strtime().c_str(), argv[0], argv[1][0], argv[2][0], iosize, qdepth, key, device.c_str(), logfilename.c_str());
+	{
+		std::string logfilename(argv[7]);
+		if ((logfilename.length() < 4) || (logfilename.substr(logfilename.length() - 3, 3) != std::string(".gz"))) {
+			logfilename += ".gz";
+		}
+	       	logfp = gzopen(logfilename.c_str(), "wb");
+	       	if (!logfp) fprintf(stderr, "Unable to open logfile %s: %s\nNo output will be available.\n", logfilename.c_str(), strerror(errno));
+	       	if (logfp) gzbuffer(logfp, 256 * 1024);
+	       	if (logfp) gzprintf(logfp, "%s UTC: %s %c %c %hu %hu %hu %s %s\n", strtime().c_str(), argv[0], argv[1][0], argv[2][0], iosize, qdepth, key, device.c_str(), logfilename.c_str());
+	}
 
 	const int fd = sg_cmds_open_device(device.c_str(), 0, 0);
 	if (fd < 0) {
-		fprintf(logfp, "Error opening device %s: %s\n", device.c_str(), strerror(errno));
+		if (logfp) gzprintf(logfp, "Error opening device %s: %s\n", device.c_str(), strerror(errno));
+		else        fprintf(stderr, "Error opening device %s: %s\n", device.c_str(), strerror(errno));
+	       	if (logfp) gzclose(logfp);
 		return -3;
        	}
 
@@ -593,7 +618,9 @@ int main(int argc, char **argv) {
 			unsigned char resp[32];
 			bzero(resp, 32);
 			if (0 != sg_ll_readcap_16(fd, 0, 0, resp, 32, 0, 0)) {
-			       	fprintf(logfp, "Read capacity failed on device %s: %s\n", device.c_str(), strerror(errno));
+			       	if (logfp) gzprintf(logfp, "Read capacity failed on device %s: %s\n", device.c_str(), strerror(errno));
+				else        fprintf(stderr, "Read capacity failed on device %s: %s\n", device.c_str(), strerror(errno));
+			       	if (logfp) gzclose(logfp);
 				return -3;
 			}
 			for (unsigned int i = 0; i < 8; i++) {
@@ -603,14 +630,16 @@ int main(int argc, char **argv) {
 				blocksize = (blocksize << 8) + resp[i];
 			}
        	}
-	if (logfp) fprintf(logfp, "%s UTC: Max LBA %8lX Block Size %u\n", strtime().c_str(), max_lba, blocksize);
+	if (logfp) gzprintf(logfp, "%s UTC: Max LBA %8lX Block Size %u\n", strtime().c_str(), max_lba, blocksize);
 
 	const uint64_t max_offsets = (max_lba + 1) / iosize + (((max_lba + 1) % iosize) ? 1 : 0);
 	Offset *offset = NULL;
 	if (is_random) offset = new RandomOffset(max_offsets);
 	else           offset = new SequentialOffset(max_offsets);
 	if (NULL == offset) {
-		fprintf(logfp, "Out of memory.\n");
+		if (logfp) gzprintf(logfp, "Out of memory.\n");
+		else        fprintf(stderr, "Out of memory.\n");
+		if (logfp) gzclose(logfp);
 		return -4;
 	}
 	const uint64_t last = *offset;
@@ -631,8 +660,7 @@ int main(int argc, char **argv) {
 		}
 		do_wait(fd, blocksize);
 		if (blocks_accessed >= next_status_print) {
-		       	if (logfp) fprintf(logfp, "%s UTC: %8lX blocks accessed (%6.2lf%% done)\n", strtime().c_str(), blocks_accessed, double(blocks_accessed * 100) / double(max_lba + 1));
-			if (logfp) fflush(logfp);
+		       	if (logfp) gzprintf(logfp, "%s UTC: %8lX blocks accessed (%6.2lf%% done)\n", strtime().c_str(), blocks_accessed, double(blocks_accessed * 100) / double(max_lba + 1));
 		       	next_status_print += STATUS_BLKCNT;
 		}
 	} while (last != offset->Next());
@@ -644,9 +672,9 @@ int main(int argc, char **argv) {
 
 	sg_cmds_close_device(fd);
 
-	if (logfp) fprintf(logfp, "%s UTC: %lu blocks accessed\n", strtime().c_str(), blocks_accessed);
+	if (logfp) gzprintf(logfp, "%s UTC: %lu blocks accessed\n", strtime().c_str(), blocks_accessed);
 
-	if (logfp) fclose(logfp);
+	if (logfp) gzclose(logfp);
 
 	if (data_miscompare) return -6;
 
