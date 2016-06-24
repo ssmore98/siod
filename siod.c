@@ -33,12 +33,43 @@ static gzFile   logfp           = 0;
 static uint64_t blocks_accessed = 0;
 static bool     data_miscompare = false;
 
+static std::string strtime() {
+	time_t t;
+	if (0 > time(&t)) {
+	       	if (logfp) gzprintf(logfp, "Memory error (%s)\n", strerror(errno));
+	       	else        fprintf(stderr, "Memory error (%s)\n", strerror(errno));
+	       	if (logfp) gzclose(logfp);
+	       	exit(-4);
+	}
+	struct tm * mytm = gmtime(&t);
+	if (NULL == mytm) {
+	       	if (logfp) gzprintf(logfp, "Memory error (%s)\n", strerror(errno));
+	       	else        fprintf(stderr, "Memory error (%s)\n", strerror(errno));
+	       	if (logfp) gzclose(logfp);
+	       	exit(-4);
+	}
+	const char * const ts = asctime(mytm);
+	if (NULL == ts) {
+	       	if (logfp) gzprintf(logfp, "Memory error (%s)\n", strerror(errno));
+	       	else        fprintf(stderr, "Memory error (%s)\n", strerror(errno));
+	       	if (logfp) gzclose(logfp);
+	       	exit(-4);
+	}
+	std::string retval(ts);
+	retval.pop_back();
+	return retval;
+}
 
 static std::string buffer2str(const unsigned char * const buf, const uint16_t & sz) {
 	std::string retval;
 	for (uint16_t i = 0; i < sz; i++) {
 		char str[6];
-		sprintf(str, "0x%02X ", ((uint8_t)buf[i]));
+		if (0 > sprintf(str, "0x%02X ", ((uint8_t)buf[i]))) {
+		       	if (logfp) gzprintf(logfp, "%s UTC: Memory error\n", strtime().c_str());
+		       	else        fprintf(stderr, "%s UTC: Memory error\n", strtime().c_str());
+		       	if (logfp) gzclose(logfp);
+		       	exit(-4);
+		}
 		retval += str;
 	}
 	return retval;
@@ -52,15 +83,6 @@ static std::string sense2str(const unsigned char * const sense) {
 	return buffer2str(sense, SENSE_LENGTH);
 }
 
-static std::string strtime() {
-	time_t t;
-	time(&t);
-	struct tm * mytm = gmtime(&t);
-	std::string retval(asctime(mytm));
-	retval.pop_back();
-	return retval;
-}
-
 static double time2double(const struct timeval & t) {
 	return (double)(t.tv_sec) + ((double)t.tv_usec)/(1000 * 1000);
 }
@@ -68,15 +90,22 @@ static double time2double(const struct timeval & t) {
 static double gettime() {
        	struct timeval t;
        	if (gettimeofday(&t, NULL)) {
-		return -1;
+	       	if (logfp) gzprintf(logfp, "%s UTC: Memory error (%s)\n", strtime().c_str(), strerror(errno));
+	       	else        fprintf(stderr, "%s UTC: Memory error (%s)\n", strtime().c_str(), strerror(errno));
+	       	if (logfp) gzclose(logfp);
+	       	exit(-4);
 	}
        	return time2double(t);
 }
 
 static unsigned char *RandomData(const uint8_t & key, const uint64_t & address, const uint16_t & blocksize) {
        	uint64_t x = 0;
-       	if (!blocksize) abort();
-       	if (blocksize % sizeof(x)) abort();
+       	if ((!blocksize) || (blocksize % sizeof(x))) {
+	       	if (logfp) gzprintf(logfp, "%s UTC: Block size error (%u)\n", strtime().c_str(), blocksize);
+	       	else        fprintf(stderr, "%s UTC: Block size error (%u)\n", strtime().c_str(), blocksize);
+	       	if (logfp) gzclose(logfp);
+	       	exit(-4);
+	}
        	unsigned char * const data = new unsigned char[blocksize];
        	if (NULL == data) {
 	       	if (logfp) gzprintf(logfp, "%s UTC: Out of memory\n", strtime().c_str());
@@ -98,10 +127,20 @@ static unsigned char *RandomData(const uint8_t & key, const uint64_t & address, 
 			       	*ptr = c;
 			       	ptr++;
 		       	}
-		       	memcpy(data + i, &x, sizeof(x));
+		       	if (data + i != memcpy(data + i, &x, sizeof(x))) {
+			       	if (logfp) gzprintf(logfp, "%s UTC: Memory error (memcpy)\n", strtime().c_str());
+			       	else        fprintf(stderr, "%s UTC: Memory error (memcpy)\n", strtime().c_str());
+			       	if (logfp) gzclose(logfp);
+			       	exit(-4);
+			}
 	       	}
        	} else {
-	       	memset(data, 0, blocksize);
+	       	if (data != memset(data, 0, blocksize)) {
+		       	if (logfp) gzprintf(logfp, "%s UTC: Memory error (memset)\n", strtime().c_str());
+		       	else        fprintf(stderr, "%s UTC: Memory error (memset)\n", strtime().c_str());
+		       	if (logfp) gzclose(logfp);
+		       	exit(-4);
+		}
        	}
        	return data;
 }
@@ -122,7 +161,12 @@ static bool WrongData(const uint8_t & key, const uint64_t & address, const uint1
 static void do_io(const uint8_t & key, const int & fd, const uint32_t & blocksize, const uint64_t & offset, const uint16_t & length, IO & io, const char & opcode, const int & dxfer_direction) {
 	io.used = true;
 	io.start = io.end = gettime();
-       	memset(io.cdb, 0, CDB_SIZE);
+       	if (io.cdb != memset(io.cdb, 0, CDB_SIZE)) {
+	       	if (logfp) gzprintf(logfp, "%s UTC: Memory error (memset)\n", strtime().c_str());
+	       	else        fprintf(stderr, "%s UTC: Memory error (memset)\n", strtime().c_str());
+	       	if (logfp) gzclose(logfp);
+	       	exit(-4);
+	}
 	io.cdb[0] = opcode;
 	io.cdb[1] = 0x08;
        	for (unsigned int j = 0; j < 8; j++) {
@@ -132,7 +176,12 @@ static void do_io(const uint8_t & key, const int & fd, const uint32_t & blocksiz
 	       	io.cdb[12 + j] = (length >> (8 * (2 - j - 1))) & 0xFF;
        	}
        	sg_io_hdr_t io_hdr;
-       	memset(&io_hdr, 0, sizeof(sg_io_hdr_t));
+       	if (&io_hdr != memset(&io_hdr, 0, sizeof(sg_io_hdr_t))) {
+	       	if (logfp) gzprintf(logfp, "%s UTC: Memory error (memset)\n", strtime().c_str());
+	       	else        fprintf(stderr, "%s UTC: Memory error (memset)\n", strtime().c_str());
+	       	if (logfp) gzclose(logfp);
+	       	exit(-4);
+	}
        	io_hdr.interface_id    = 'S';
        	io_hdr.cmd_len         = CDB_SIZE;
        	io_hdr.mx_sb_len       = SENSE_LENGTH;
@@ -146,7 +195,12 @@ static void do_io(const uint8_t & key, const int & fd, const uint32_t & blocksiz
 		       	if (logfp) gzclose(logfp);
 		       	exit(-4);
 	       	}
-		memset(io_hdr.dxferp, 0, io_hdr.dxfer_len);
+		if (io_hdr.dxferp != memset(io_hdr.dxferp, 0, io_hdr.dxfer_len)) {
+		       	if (logfp) gzprintf(logfp, "%s UTC: Memory error (memset)\n", strtime().c_str());
+		       	else        fprintf(stderr, "%s UTC: Memory error (memset)\n", strtime().c_str());
+		       	if (logfp) gzclose(logfp);
+		       	exit(-4);
+		}
 	} else {
 	       	io_hdr.dxferp = RandomData(key, offset, blocksize);
 	}
@@ -198,7 +252,12 @@ static void do_wait(const int & fd, const uint16_t & blocksize) {
 			       	exit(-5);
 			}
 		       	sg_io_hdr_t io_hdr;
-		       	memset(&io_hdr, 0, sizeof(sg_io_hdr_t));
+		       	if (&io_hdr != memset(&io_hdr, 0, sizeof(sg_io_hdr_t))) {
+			       	if (logfp) gzprintf(logfp, "%s UTC: Memory error (memset)\n", strtime().c_str());
+			       	else        fprintf(stderr, "%s UTC: Memory error (memset)\n", strtime().c_str());
+			       	if (logfp) gzclose(logfp);
+			       	exit(-4);
+			}
 		       	if (-1 == read(fd, &io_hdr, sizeof(sg_io_hdr_t))) {
 			       	if (logfp) gzprintf(logfp, "%s UTC: Error : Unable to wait on I/O (read)\n", strtime().c_str());
 				else        fprintf(stderr, "%s UTC: Error : Unable to wait on I/O (read)\n", strtime().c_str());
@@ -568,7 +627,12 @@ int main(int argc, char **argv) {
 		return -4;
 	}
 	for (uint16_t i = 0; i < qdepth; i++) {
-	       	memset(&ios[i], 0, sizeof(IO));
+	       	if (&ios[i] != memset(&ios[i], 0, sizeof(IO))) {
+		       	if (logfp) gzprintf(logfp, "%s UTC: Memory error (memset)\n", strtime().c_str());
+		       	else        fprintf(stderr, "%s UTC: Memory error (memset)\n", strtime().c_str());
+		       	if (logfp) gzclose(logfp);
+		       	exit(-4);
+		}
 		ios[i].used = false;
 		ios[i].me = i;
 	}
