@@ -72,7 +72,7 @@ static double gettime() {
 }
 
 static unsigned char *RandomData(const uint8_t & key, const uint64_t & address, const uint16_t & blocksize) {
-       	uint64_t x;
+       	uint64_t x = 0;
        	if (!blocksize) abort();
        	if (blocksize % sizeof(x)) abort();
        	unsigned char * const data = new unsigned char[blocksize];
@@ -80,25 +80,25 @@ static unsigned char *RandomData(const uint8_t & key, const uint64_t & address, 
 	       	if (logfp) fprintf(logfp, "%s UTC: Out of memory\n", strtime().c_str());
 	       	exit(-4);
 	}
-			if (key) {
-			       	LFSR lfsr(0xFFFFFFFFFFFFFFFFUL, address ? address : address - 1);
-			       	for (uint16_t i = 0; i < blocksize; i += sizeof(x)) {
-					for (uint16_t j = 0; j < (key & 0x3); j++) {
-					       	x = lfsr++;
-					}
-					unsigned char *ptr = (unsigned char *)(&x);
-					unsigned char mask = (unsigned char)(key & 0x3) << 6;
-				       	for (uint16_t j = 0; j < sizeof(x); j++) {
-						unsigned char c = *ptr;
-						c = ((c << 2) >> 2) | mask;
-						*ptr = c;
-						ptr++;
-					}
-				       	memcpy(data + i, &x, sizeof(x));
-			       	}
-			} else {
-			       	memset(data, 0, blocksize);
-			}
+	if (key) {
+	       	LFSR lfsr(0xFFFFFFFFFFFFFFFFUL, address ? address : address - 1);
+	       	for (uint16_t i = 0; i < blocksize; i += sizeof(x)) {
+		       	for (uint16_t j = 0; j < (key & 0x3); j++) {
+			       	x = lfsr++;
+		       	}
+		       	unsigned char *ptr = (unsigned char *)(&x);
+		       	unsigned char mask = (unsigned char)(key & 0x3) << 6;
+		       	for (uint16_t j = 0; j < sizeof(x); j++) {
+			       	unsigned char c = *ptr;
+			       	c = (c & 0x3F) | mask;
+			       	*ptr = c;
+			       	ptr++;
+		       	}
+		       	memcpy(data + i, &x, sizeof(x));
+	       	}
+       	} else {
+	       	memset(data, 0, blocksize);
+       	}
        	return data;
 }
 
@@ -339,18 +339,15 @@ static void do_wait(const int & fd, const uint16_t & blocksize) {
 			}
 		       	if (SG_DXFER_FROM_DEV == io_hdr.dxfer_direction) {
 				const uint8_t key = (((unsigned char *)io_hdr.dxferp)[0] >> 6) & 0x3;
-				printf("%X\n", (uint16_t)(((unsigned char *)io_hdr.dxferp)[0]));
-				exit(0);
 				uint64_t address = 0;
-				memcpy(&address, ((unsigned char *)io_hdr.dxferp) + 12, sizeof(address));
+			       	for (unsigned int j = 0; j < 8; j++) {
+				       	address = (address << 8) | io_hdr.cmdp[2 + j];
+			       	}
 			       	if (WrongData(key, address, blocksize, (unsigned char *)io_hdr.dxferp)) {
 				       	if (logfp) fprintf(logfp, "%s UTC: Error : Data Miscompare\n", s.c_str());
 				       	if (logfp) fprintf(logfp, "%s UTC: Time  : %lf %lf\n", s.c_str(), io->start, io->end);
 				       	if (logfp) fprintf(logfp, "%s UTC: CDB   : %s\n", s.c_str(), cdb2str(io->cdb).c_str());
 				}
-			} else {
-				printf("%X\n", (uint16_t)(((unsigned char *)io_hdr.dxferp)[0]));
-				exit(0);
 			}
 		       	delete [] ((unsigned char *)io_hdr.dxferp);
 			break;
@@ -604,8 +601,6 @@ int main(int argc, char **argv) {
 			}
        	}
 	if (logfp) fprintf(logfp, "%s UTC: Max LBA %8lX Block Size %u\n", strtime().c_str(), max_lba, blocksize);
-
-	max_lba = 1024 * 1024 * 8;
 
 	const uint64_t max_offsets = (max_lba + 1) / iosize + (((max_lba + 1) % iosize) ? 1 : 0);
 	Offset *offset = NULL;
