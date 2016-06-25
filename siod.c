@@ -10,10 +10,13 @@
 #include <signal.h>
 #include <unistd.h>
 #include <sys/time.h>
+#include <sys/wait.h>
 #include <zlib.h>
 
 #include <string>
 #include <iostream>
+#include <vector>
+#include <set>
 
 #include "lfsr.h"
 
@@ -432,7 +435,7 @@ static void do_wait(const uint8_t & key, const int & fd, const uint16_t & blocks
 }
 
 static void print_usage(const std::string p) {
-	fprintf(stderr, "Usage:\n\n%s [rw] [rs] [0-9]+ [0-9]+ [0123] /dev/sg[0-9]+ <logfile>\n", p.c_str());
+	fprintf(stderr, "\nUsage:\n\n%s [rw] [rs] [0-9]+ [0-9]+ [0123] <logfile prefix> [0-9]+ ...\n\n", p.c_str());
        	if (logfp) gzclose(logfp);
 	exit(-2);
 }
@@ -446,15 +449,124 @@ static void getout(int s) {
 	exit(-1);
 }
 
+static int slave(const std::string & argv0, const bool & is_write, const bool & is_random, const uint16_t & iosize, uint16_t & qdepth,
+	       	const uint8_t & key, const std::string & logfile_prefix, const uint16_t & dno) {
+
+	const std::string device = std::string("/dev/sg") + std::to_string(dno);
+
+	// the slave process
+	{
+		const std::string logfilename = logfile_prefix + std::string("log.") + std::to_string(dno) + std::string(".gz");
+	       	logfp = gzopen(logfilename.c_str(), "wb");
+	       	if (!logfp) fprintf(stderr, "Unable to open logfile %s: %s\nNo output will be available.\n", logfilename.c_str(), strerror(errno));
+	       	if (logfp) gzbuffer(logfp, 256 * 1024);
+	       	if (logfp) gzprintf(logfp, "%s UTC: %s %c %c %hu %hu %hu %s %s\n", strtime().c_str(), argv0.c_str(), is_write ? 'W' : 'R', is_random ? 'R' : 'S',
+			       	iosize, qdepth, key, device.c_str(), logfilename.c_str());
+	}
+
+	IO *ios = new IO[qdepth];
+	if (NULL == ios) {
+		fprintf(stderr, "Out of memory.\n");
+		return -4;
+	}
+	for (uint16_t i = 0; i < qdepth; i++) {
+	       	if (&ios[i] != memset(&ios[i], 0, sizeof(IO))) {
+		       	if (logfp) gzprintf(logfp, "%s UTC: Memory error (memset)\n", strtime().c_str());
+		       	else        fprintf(stderr, "%s UTC: Memory error (memset)\n", strtime().c_str());
+		       	if (logfp) gzclose(logfp);
+		       	exit(-4);
+		}
+		ios[i].used = false;
+		ios[i].me = i;
+	}
+
+	const int fd = sg_cmds_open_device(device.c_str(), 0, 0);
+	if (fd < 0) {
+		if (logfp) gzprintf(logfp, "Error opening device %s: %s\n", device.c_str(), strerror(errno));
+		else        fprintf(stderr, "Error opening device %s: %s\n", device.c_str(), strerror(errno));
+	       	if (logfp) gzclose(logfp);
+		return -3;
+       	}
+
+	uint64_t max_lba = 0;
+       	uint32_t blocksize = 0;
+       	{
+			unsigned char resp[32];
+			bzero(resp, 32);
+			if (0 != sg_ll_readcap_16(fd, 0, 0, resp, 32, 0, 0)) {
+			       	if (logfp) gzprintf(logfp, "Read capacity failed on device %s: %s\n", device.c_str(), strerror(errno));
+				else        fprintf(stderr, "Read capacity failed on device %s: %s\n", device.c_str(), strerror(errno));
+			       	if (logfp) gzclose(logfp);
+				return -3;
+			}
+			for (unsigned int i = 0; i < 8; i++) {
+				max_lba = (max_lba << 8) + resp[i];
+			}
+			for (unsigned int i = 8; i < 12; i++) {
+				blocksize = (blocksize << 8) + resp[i];
+			}
+       	}
+	if (logfp) gzprintf(logfp, "%s UTC: Max LBA %8lX Block Size %u\n", strtime().c_str(), max_lba, blocksize);
+
+	const uint64_t max_offsets = (max_lba + 1) / iosize + (((max_lba + 1) % iosize) ? 1 : 0);
+	Offset *offset = NULL;
+	if (is_random) offset = new RandomOffset(max_offsets);
+	else           offset = new SequentialOffset(max_offsets);
+	if (NULL == offset) {
+		if (logfp) gzprintf(logfp, "Out of memory.\n");
+		else        fprintf(stderr, "Out of memory.\n");
+		if (logfp) gzclose(logfp);
+		return -4;
+	}
+	const uint64_t last = *offset;
+	uint64_t next_status_print = STATUS_BLKCNT;
+	do {
+	       	for (uint16_t i = 0; i < qdepth; i++) {
+			if (false == ios[i].used) {
+				const uint64_t a = *offset;
+				const uint64_t b =  a * iosize;
+				const uint32_t c =  (b + iosize - 1 <= max_lba) ? iosize : max_lba - b + 1;
+				if (is_write) {
+					do_write(key, fd, blocksize, b, c, ios[i]);
+				} else {
+					do_read( key, fd, blocksize, b, c, ios[i]);
+				}
+				blocks_accessed += c;
+			}
+		}
+		do_wait(key, fd, blocksize);
+		if (blocks_accessed >= next_status_print) {
+		       	if (logfp) gzprintf(logfp, "%s UTC: %8lX blocks accessed (%6.2lf%% done)\n", strtime().c_str(), blocks_accessed, double(blocks_accessed * 100) / double(max_lba + 1));
+		       	next_status_print += STATUS_BLKCNT;
+		}
+	} while (last != offset->Next());
+
+	delete offset;
+	offset = NULL;
+	delete [] ios;
+	ios = NULL;
+
+	sg_cmds_close_device(fd);
+
+	if (logfp) gzprintf(logfp, "%s UTC: %lu blocks accessed\n", strtime().c_str(), blocks_accessed);
+
+	if (logfp) gzclose(logfp);
+
+	if (data_miscompare) return -6;
+
+	return 0;
+}
+
 /*
  * Exit codes:
  * 0  : Normal Termination
- * -1 : caught signal (SIGINT, SIGTERM)
+ * -1 : caught signal
  * -2 : error in command line parameters
  * -3 : error accessing the device
  * -4 : out of memory
  * -5 : cannot wait on I/Os, problem with pselect system call
  * -6 : data miscompare
+ * -7 : cannot start slave processes
  */
 int main(int argc, char **argv) {
 
@@ -554,12 +666,6 @@ int main(int argc, char **argv) {
 		fprintf(stderr, "Cannot manage SIGXFSZ: %s\n", strerror(errno));
 		return -1;
 	}
-	/* NOT DEFINED
-	if (SIG_ERR == signal(SIGEMT, getout)) {
-		fprintf(logfp, "Cannot manage SIGEMT: %s\n", strerror(errno));
-		return -1;
-	}
-	*/
 	if (SIG_ERR == signal(SIGSTKFLT, getout)) {
 		fprintf(stderr, "Cannot manage SIGSTKFLT: %s\n", strerror(errno));
 		return -1;
@@ -572,19 +678,15 @@ int main(int argc, char **argv) {
 		fprintf(stderr, "Cannot manage SIGPWR: %s\n", strerror(errno));
 		return -1;
 	} 
-	/* NOT DEFINED
-	if (SIG_ERR == signal(SIGLOST, SIG_IGN)) {
-		fprintf(logfp, "Cannot manage SIGLOST: %s\n", strerror(errno));
-		return -1;
-	}
-	*/
 	if (SIG_ERR == signal(SIGWINCH, SIG_IGN)) {
 		fprintf(stderr, "Cannot manage SIGWINCH: %s\n", strerror(errno));
 		return -1;
 	}
-	if (argc != 8) {
+
+	if (argc < 8) {
 		print_usage(argv[0]);
 	}
+
 	bool is_write = false;
 	switch (argv[1][0]) {
 		case 'R':
@@ -622,21 +724,7 @@ int main(int argc, char **argv) {
 	       	print_usage(argv[0]);
 	}
 
-	IO *ios = new IO[qdepth];
-	if (NULL == ios) {
-		fprintf(stderr, "Out of memory.\n");
-		return -4;
-	}
-	for (uint16_t i = 0; i < qdepth; i++) {
-	       	if (&ios[i] != memset(&ios[i], 0, sizeof(IO))) {
-		       	if (logfp) gzprintf(logfp, "%s UTC: Memory error (memset)\n", strtime().c_str());
-		       	else        fprintf(stderr, "%s UTC: Memory error (memset)\n", strtime().c_str());
-		       	if (logfp) gzclose(logfp);
-		       	exit(-4);
-		}
-		ios[i].used = false;
-		ios[i].me = i;
-	}
+
 
 	uint8_t key = 0;
 	switch (argv[5][0]) {
@@ -656,92 +744,180 @@ int main(int argc, char **argv) {
 		       	print_usage(argv[0]);
 	}
 
-	const std::string device(argv[6]);
+	const std::string logfile_prefix(argv[6]);
 
-	{
-		std::string logfilename(argv[7]);
-		if ((logfilename.length() < 4) || (logfilename.substr(logfilename.length() - 3, 3) != std::string(".gz"))) {
-			logfilename += ".gz";
+	std::vector<uint16_t> dnos;
+	for (uint16_t i = 7; i <argc; i++) {
+		uint16_t dno;
+		if (1 != sscanf(argv[i], "%hu", &dno)) {
+		       	print_usage(argv[0]);
 		}
-	       	logfp = gzopen(logfilename.c_str(), "wb");
-	       	if (!logfp) fprintf(stderr, "Unable to open logfile %s: %s\nNo output will be available.\n", logfilename.c_str(), strerror(errno));
-	       	if (logfp) gzbuffer(logfp, 256 * 1024);
-	       	if (logfp) gzprintf(logfp, "%s UTC: %s %c %c %hu %hu %hu %s %s\n", strtime().c_str(), argv[0], argv[1][0], argv[2][0], iosize, qdepth, key, device.c_str(), logfilename.c_str());
+		dnos.push_back(dno);
 	}
 
-	const int fd = sg_cmds_open_device(device.c_str(), 0, 0);
-	if (fd < 0) {
-		if (logfp) gzprintf(logfp, "Error opening device %s: %s\n", device.c_str(), strerror(errno));
-		else        fprintf(stderr, "Error opening device %s: %s\n", device.c_str(), strerror(errno));
-	       	if (logfp) gzclose(logfp);
-		return -3;
-       	}
+	if (1 < dnos.size()) {
+		// The master process
+		std::set<pid_t> spids;
+		for (std::vector<uint16_t>::const_iterator i = dnos.begin(); i != dnos.end(); i++) {
+			pid_t spid;
+			switch (spid = fork()) {
+				case -1:
+					// fork failed
+					if (0 < spids.size()) {
+						// kill slaves
+						for (std::set<pid_t>::const_iterator j = spids.begin(); j != spids.end(); j++) {
+						       	if (kill(*j, SIGTERM)) {
+							       	kill(*j, SIGKILL);
+							}
+						}
+						for (std::set<pid_t>::const_iterator j = spids.begin(); j != spids.end(); j++) {
+							int status = 0;
+							if (*j != waitpid(*j, &status, 0)) {
+								// wait failed for some reason
+								fprintf(stderr, "Could not wait on slave %hu (pid=%u): %s\n", *i, *j, strerror(errno));
+							}
+						}
+					}
+					return -7;
+				case 0:
+					// slave
+					return slave(argv[0], is_write, is_random, iosize, qdepth, key, logfile_prefix, *i);
+				default:
+					// master
+					spids.insert(spid);
+					break;
+			}
+		}
+		// master tries to ignore all signals
+		if (SIG_ERR == signal(SIGHUP, SIG_IGN)) {
+			fprintf(stderr, "Cannot manage SIGHUP: %s\n", strerror(errno));
+			return -1;
+		}
+		if (SIG_ERR == signal(SIGINT, SIG_IGN)) {
+			fprintf(stderr, "Cannot manage SIGINT: %s\n", strerror(errno));
+			return -1;
+		}
+		if (SIG_ERR == signal(SIGQUIT, SIG_IGN)) {
+			fprintf(stderr, "Cannot manage SIGQUIT: %s\n", strerror(errno));
+			return -1;
+		}
+		if (SIG_ERR == signal(SIGILL, SIG_IGN)) {
+			fprintf(stderr, "Cannot manage SIGILL: %s\n", strerror(errno));
+			return -1;
+		}
+		if (SIG_ERR == signal(SIGABRT, SIG_IGN)) {
+			fprintf(stderr, "Cannot manage SIGABRT: %s\n", strerror(errno));
+			return -1;
+		}
+		if (SIG_ERR == signal(SIGFPE, SIG_IGN)) {
+			fprintf(stderr, "Cannot manage SIGFPE: %s\n", strerror(errno));
+			return -1;
+		}
+		if (SIG_ERR == signal(SIGSEGV, SIG_IGN)) {
+			fprintf(stderr, "Cannot manage SIGSEGV: %s\n", strerror(errno));
+			return -1;
+		}
+		if (SIG_ERR == signal(SIGPIPE, SIG_IGN)) {
+			fprintf(stderr, "Cannot manage SIGPIPE: %s\n", strerror(errno));
+			return -1;
+		}
+		if (SIG_ERR == signal(SIGALRM, SIG_IGN)) {
+			fprintf(stderr, "Cannot manage SIGALRM: %s\n", strerror(errno));
+			return -1;
+		}
+		if (SIG_ERR == signal(SIGTERM, SIG_IGN)) {
+			fprintf(stderr, "Cannot manage SIGTERM: %s\n", strerror(errno));
+			return -1;
+		}
+		if (SIG_ERR == signal(SIGUSR1, SIG_IGN)) {
+			fprintf(stderr, "Cannot manage SIGUSR1: %s\n", strerror(errno));
+			return -1;
+		}
+		if (SIG_ERR == signal(SIGUSR2, SIG_IGN)) {
+			fprintf(stderr, "Cannot manage SIGUSR2: %s\n", strerror(errno));
+			return -1;
+		}
+		if (SIG_ERR == signal(SIGCHLD, SIG_DFL)) {
+			fprintf(stderr, "Cannot manage SIGCHLD: %s\n", strerror(errno));
+			return -1;
+		}
+		if (SIG_ERR == signal(SIGTTIN, SIG_IGN)) {
+			fprintf(stderr, "Cannot manage SIGTTIN: %s\n", strerror(errno));
+			return -1;
+		}
+		if (SIG_ERR == signal(SIGTTOU, SIG_IGN)) {
+			fprintf(stderr, "Cannot manage SIGTTOU: %s\n", strerror(errno));
+			return -1;
+		}
+		if (SIG_ERR == signal(SIGBUS, SIG_IGN)) {
+			fprintf(stderr, "Cannot manage SIGBUS: %s\n", strerror(errno));
+			return -1;
+		}
+		if (SIG_ERR == signal(SIGPOLL, SIG_IGN)) {
+			fprintf(stderr, "Cannot manage SIGPOLL: %s\n", strerror(errno));
+			return -1;
+		}
+		if (SIG_ERR == signal(SIGPROF, SIG_IGN)) {
+			fprintf(stderr, "Cannot manage SIGPROF: %s\n", strerror(errno));
+			return -1;
+		}
+		if (SIG_ERR == signal(SIGSYS, SIG_IGN)) {
+			fprintf(stderr, "Cannot manage SIGSYS: %s\n", strerror(errno));
+			return -1;
+		}
+		if (SIG_ERR == signal(SIGTRAP, SIG_IGN)) {
+			fprintf(stderr, "Cannot manage SIGTRAP: %s\n", strerror(errno));
+			return -1;
+		}
+		if (SIG_ERR == signal(SIGURG, SIG_IGN)) {
+			fprintf(stderr, "Cannot manage SIGURG: %s\n", strerror(errno));
+			return -1;
+		}
+		if (SIG_ERR == signal(SIGVTALRM, SIG_IGN)) {
+			fprintf(stderr, "Cannot manage SIGVTALRM: %s\n", strerror(errno));
+			return -1;
+		}
+		if (SIG_ERR == signal(SIGXCPU, SIG_IGN)) {
+			fprintf(stderr, "Cannot manage SIGXCPU: %s\n", strerror(errno));
+			return -1;
+		}
+		if (SIG_ERR == signal(SIGXFSZ, SIG_IGN)) {
+			fprintf(stderr, "Cannot manage SIGXFSZ: %s\n", strerror(errno));
+			return -1;
+		}
+		if (SIG_ERR == signal(SIGSTKFLT, SIG_IGN)) {
+			fprintf(stderr, "Cannot manage SIGSTKFLT: %s\n", strerror(errno));
+			return -1;
+		}
+		if (SIG_ERR == signal(SIGIO, SIG_IGN)) {
+			fprintf(stderr, "Cannot manage SIGIO: %s\n", strerror(errno));
+			return -1;
+		}
+		if (SIG_ERR == signal(SIGPWR, SIG_IGN)) {
+			fprintf(stderr, "Cannot manage SIGPWR: %s\n", strerror(errno));
+			return -1;
+		} 
+		if (SIG_ERR == signal(SIGWINCH, SIG_IGN)) {
+			fprintf(stderr, "Cannot manage SIGWINCH: %s\n", strerror(errno));
+			return -1;
+		}
 
-	uint64_t max_lba = 0;
-       	uint32_t blocksize = 0;
-       	{
-			unsigned char resp[32];
-			bzero(resp, 32);
-			if (0 != sg_ll_readcap_16(fd, 0, 0, resp, 32, 0, 0)) {
-			       	if (logfp) gzprintf(logfp, "Read capacity failed on device %s: %s\n", device.c_str(), strerror(errno));
-				else        fprintf(stderr, "Read capacity failed on device %s: %s\n", device.c_str(), strerror(errno));
-			       	if (logfp) gzclose(logfp);
-				return -3;
+		int retval = 0;
+		for (std::set<pid_t>::const_iterator j = spids.begin(); j != spids.end(); j++) {
+			int status = 0;
+			pid_t x;
+			if (*j != (x = waitpid(*j, &status, 0))) {
+				// wait failed for some reason
+				fprintf(stderr, "Could not wait on slave (pid=%u): %s\n", *j, strerror(errno));
+				retval = -7;
 			}
-			for (unsigned int i = 0; i < 8; i++) {
-				max_lba = (max_lba << 8) + resp[i];
+			if (!retval && status) {
+				retval = status;
 			}
-			for (unsigned int i = 8; i < 12; i++) {
-				blocksize = (blocksize << 8) + resp[i];
-			}
-       	}
-	if (logfp) gzprintf(logfp, "%s UTC: Max LBA %8lX Block Size %u\n", strtime().c_str(), max_lba, blocksize);
-
-	const uint64_t max_offsets = (max_lba + 1) / iosize + (((max_lba + 1) % iosize) ? 1 : 0);
-	Offset *offset = NULL;
-	if (is_random) offset = new RandomOffset(max_offsets);
-	else           offset = new SequentialOffset(max_offsets);
-	if (NULL == offset) {
-		if (logfp) gzprintf(logfp, "Out of memory.\n");
-		else        fprintf(stderr, "Out of memory.\n");
-		if (logfp) gzclose(logfp);
-		return -4;
+		}
+		return retval;
 	}
-	const uint64_t last = *offset;
-	uint64_t next_status_print = STATUS_BLKCNT;
-	do {
-	       	for (uint16_t i = 0; i < qdepth; i++) {
-			if (false == ios[i].used) {
-				const uint64_t a = *offset;
-				const uint64_t b =  a * iosize;
-				const uint32_t c =  (b + iosize - 1 <= max_lba) ? iosize : max_lba - b + 1;
-				if (is_write) {
-					do_write(key, fd, blocksize, b, c, ios[i]);
-				} else {
-					do_read( key, fd, blocksize, b, c, ios[i]);
-				}
-				blocks_accessed += c;
-			}
-		}
-		do_wait(key, fd, blocksize);
-		if (blocks_accessed >= next_status_print) {
-		       	if (logfp) gzprintf(logfp, "%s UTC: %8lX blocks accessed (%6.2lf%% done)\n", strtime().c_str(), blocks_accessed, double(blocks_accessed * 100) / double(max_lba + 1));
-		       	next_status_print += STATUS_BLKCNT;
-		}
-	} while (last != offset->Next());
-
-	delete offset;
-	offset = NULL;
-	delete [] ios;
-	ios = NULL;
-
-	sg_cmds_close_device(fd);
-
-	if (logfp) gzprintf(logfp, "%s UTC: %lu blocks accessed\n", strtime().c_str(), blocks_accessed);
-
-	if (logfp) gzclose(logfp);
-
-	if (data_miscompare) return -6;
-
-	return 0;
+       	return slave(argv[0], is_write, is_random, iosize, qdepth, key, logfile_prefix, dnos[0]);
 }
+
+
