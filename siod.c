@@ -17,6 +17,7 @@
 #include <iostream>
 #include <vector>
 #include <set>
+#include <regex>
 
 #include "lfsr.h"
 
@@ -747,12 +748,38 @@ int main(int argc, char **argv) {
 	const std::string logfile_prefix(argv[6]);
 
 	std::vector<uint16_t> dnos;
-	for (uint16_t i = 7; i <argc; i++) {
-		uint16_t dno;
-		if (1 != sscanf(argv[i], "%hu", &dno)) {
+	for (uint16_t i = 7; i < argc; i++) {
+		if (std::string::npos == std::string(argv[i]).find_first_of("-")) {
+		       	uint16_t dno;
+		       	if (1 != sscanf(argv[i], "%hu", &dno)) {
+			       	print_usage(argv[0]);
+		       	}
+		       	dnos.push_back(dno);
+		} else if (((std::string(argv[i]).find_first_of("-") == std::string(argv[i]).find_last_of("-")))
+			       	&& (0 != std::string(argv[i]).find_first_of("-"))
+			       	&& (std::string(argv[i]).size() - 1 > std::string(argv[i]).find_last_of("-"))) {
+			const std::string s(argv[i]);
+			const std::string s1(s.substr(0, s.find_first_of("-")));
+			const std::string s2(s.substr(s.find_first_of("-") + 1));
+		       	uint16_t dno1;
+		       	if (1 != sscanf(s1.c_str(), "%hu", &dno1)) {
+			       	print_usage(argv[0]);
+		       	}
+		       	uint16_t dno2;
+		       	if (1 != sscanf(s2.c_str(), "%hu", &dno2)) {
+			       	print_usage(argv[0]);
+		       	}
+			if (dno1 > dno2) {
+				const uint16_t x = dno1;
+				dno1 = dno2;
+				dno2 = x;
+			}
+			for (uint16_t j = dno1; j <= dno2; j++) {
+			       	dnos.push_back(j);
+			}
+		} else {
 		       	print_usage(argv[0]);
 		}
-		dnos.push_back(dno);
 	}
 
 	if (1 < dnos.size()) {
@@ -837,7 +864,7 @@ int main(int argc, char **argv) {
 			fprintf(stderr, "Cannot manage SIGUSR2: %s\n", strerror(errno));
 			return -1;
 		}
-		if (SIG_ERR == signal(SIGCHLD, SIG_DFL)) {
+		if (SIG_ERR == signal(SIGCHLD, SIG_DFL)) { // to allow the master to get the return from the slaves
 			fprintf(stderr, "Cannot manage SIGCHLD: %s\n", strerror(errno));
 			return -1;
 		}
