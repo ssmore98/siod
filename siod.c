@@ -102,7 +102,13 @@ static double gettime() {
        	return time2double(t);
 }
 
-static unsigned char *RandomData(const uint8_t & key, const uint64_t & address, const uint16_t & blocksize) {
+static unsigned char *RandomData(const uint8_t & key, const uint64_t & address, const uint16_t & blocksize, const uint16_t & blocks) {
+       	if (!blocks) {
+	       	if (logfp) gzprintf(logfp, "%s UTC: Buffer size error (%u)\n", strtime().c_str(), blocks);
+	       	else        fprintf(stderr, "%s UTC: Buffer size error (%u)\n", strtime().c_str(), blocks);
+	       	if (logfp) gzclose(logfp);
+	       	exit(-4);
+	}
        	uint64_t x = 0;
        	if ((!blocksize) || (blocksize % sizeof(x))) {
 	       	if (logfp) gzprintf(logfp, "%s UTC: Block size error (%u)\n", strtime().c_str(), blocksize);
@@ -110,7 +116,7 @@ static unsigned char *RandomData(const uint8_t & key, const uint64_t & address, 
 	       	if (logfp) gzclose(logfp);
 	       	exit(-4);
 	}
-       	unsigned char * const data = new unsigned char[blocksize];
+       	unsigned char * const data = new unsigned char[blocksize * blocks];
        	if (NULL == data) {
 	       	if (logfp) gzprintf(logfp, "%s UTC: Out of memory\n", strtime().c_str());
 		else        fprintf(stderr, "%s UTC: Out of memory\n", strtime().c_str());
@@ -118,28 +124,24 @@ static unsigned char *RandomData(const uint8_t & key, const uint64_t & address, 
 	       	exit(-4);
 	}
 	if (key) {
-	       	LFSR lfsr(0xFFFFFFFFFFFFFFFFUL, address ? address : address - 1);
-	       	for (uint16_t i = 0; i < blocksize; i += sizeof(x)) {
+	       	const uint64_t mask = (uint64_t)(key & 0x3) << 62;
+		for (uint16_t k = 0; k < blocks; k++) {
+		       	LFSR lfsr(0x3FFFFFFFFFFFFFFFUL, (address + k) ? (address + k) : (address + k - 1));
 		       	for (uint16_t j = 0; j < (key & 0x3); j++) {
 			       	x = lfsr++;
 		       	}
-		       	unsigned char *ptr = (unsigned char *)(&x);
-		       	unsigned char mask = (unsigned char)(key & 0x3) << 6;
-		       	for (uint16_t j = 0; j < sizeof(x); j++) {
-			       	unsigned char c = *ptr;
-			       	c = (c & 0x3F) | mask;
-			       	*ptr = c;
-			       	ptr++;
+			x = (x & 0x3FFFFFFFFFFFFFFFUL) | mask;
+		       	for (uint16_t i = 0; i < blocksize; i += sizeof(x)) {
+			       	if (data + k * blocksize + i != memcpy(data + k * blocksize + i, &x, sizeof(x))) {
+				       	if (logfp) gzprintf(logfp, "%s UTC: Memory error (memcpy)\n", strtime().c_str());
+				       	else        fprintf(stderr, "%s UTC: Memory error (memcpy)\n", strtime().c_str());
+				       	if (logfp) gzclose(logfp);
+				       	exit(-4);
+			       	}
 		       	}
-		       	if (data + i != memcpy(data + i, &x, sizeof(x))) {
-			       	if (logfp) gzprintf(logfp, "%s UTC: Memory error (memcpy)\n", strtime().c_str());
-			       	else        fprintf(stderr, "%s UTC: Memory error (memcpy)\n", strtime().c_str());
-			       	if (logfp) gzclose(logfp);
-			       	exit(-4);
-			}
-	       	}
+		}
        	} else {
-	       	if (data != memset(data, 0, blocksize)) {
+	       	if (data != memset(data, 0, blocksize * blocks)) {
 		       	if (logfp) gzprintf(logfp, "%s UTC: Memory error (memset)\n", strtime().c_str());
 		       	else        fprintf(stderr, "%s UTC: Memory error (memset)\n", strtime().c_str());
 		       	if (logfp) gzclose(logfp);
@@ -149,9 +151,9 @@ static unsigned char *RandomData(const uint8_t & key, const uint64_t & address, 
        	return data;
 }
 
-static bool WrongData(const uint8_t & key, const uint64_t & address, const uint16_t & blocksize, const unsigned char * const data) {
+static bool WrongData(const uint8_t & key, const uint64_t & address, const uint16_t & blocksize, const uint16_t & blocks, const unsigned char * const data) {
 	if (!key) return true;
-	const unsigned char * const xdata = RandomData(key, address, blocksize);
+	const unsigned char * const xdata = RandomData(key, address, blocksize, blocks);
 	for (uint16_t i = 0; i < blocksize; i++) {
 		if (xdata[i] != data[i]) {
 			delete [] xdata;
@@ -206,7 +208,7 @@ static void do_io(const uint8_t & key, const int & fd, const uint32_t & blocksiz
 		       	exit(-4);
 		}
 	} else {
-	       	io_hdr.dxferp = RandomData(key, offset, blocksize);
+	       	io_hdr.dxferp = RandomData(key, offset, blocksize, length);
 	}
        	io_hdr.cmdp            = io.cdb;
        	io_hdr.sbp             = io.sb;
@@ -423,7 +425,11 @@ static void do_wait(const uint8_t & key, const int & fd, const uint16_t & blocks
 			       	for (unsigned int j = 0; j < 8; j++) {
 				       	address = (address << 8) | io_hdr.cmdp[2 + j];
 			       	}
-			       	if (WrongData(new_key, address, blocksize, (unsigned char *)io_hdr.dxferp)) {
+				uint16_t length = 0;
+			       	for (unsigned int j = 0; j < 2; j++) {
+				       	length = (length << 8) | io_hdr.cmdp[12 + j];
+			       	}
+			       	if (WrongData(new_key, address, blocksize, length, (unsigned char *)io_hdr.dxferp)) {
 				       	if (logfp) gzprintf(logfp, "%s UTC: Error : Data Miscompare\n", s.c_str());
 				       	if (logfp) gzprintf(logfp, "%s UTC: Time  : %lf %lf\n", s.c_str(), io->start, io->end);
 				       	if (logfp) gzprintf(logfp, "%s UTC: CDB   : %s\n", s.c_str(), cdb2str(io->cdb).c_str());
@@ -537,7 +543,7 @@ static int slave(const std::string & argv0, const bool & is_write, const bool & 
 		}
 		do_wait(key, fd, blocksize);
 		if (blocks_accessed >= next_status_print) {
-		       	if (logfp) gzprintf(logfp, "%s UTC: %8lX blocks accessed (%6.2lf%% done)\n", strtime().c_str(), blocks_accessed, double(blocks_accessed * 100) / double(max_lba + 1));
+		       	if (logfp) gzprintf(logfp, "%s UTC: 0x%8lX blocks accessed (%6.2lf%% done)\n", strtime().c_str(), blocks_accessed, double(blocks_accessed * 100) / double(max_lba + 1));
 		       	next_status_print += STATUS_BLKCNT;
 			break;
 		}
@@ -550,7 +556,7 @@ static int slave(const std::string & argv0, const bool & is_write, const bool & 
 
 	sg_cmds_close_device(fd);
 
-	if (logfp) gzprintf(logfp, "%s UTC: %lu blocks accessed\n", strtime().c_str(), blocks_accessed);
+	if (logfp) gzprintf(logfp, "%s UTC: 0x%8lX blocks accessed\n", strtime().c_str(), blocks_accessed);
 
 	if (logfp) gzclose(logfp);
 
