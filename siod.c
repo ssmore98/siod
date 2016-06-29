@@ -539,6 +539,7 @@ static int slave(const std::string & argv0, const bool & is_write, const bool & 
 		if (blocks_accessed >= next_status_print) {
 		       	if (logfp) gzprintf(logfp, "%s UTC: %8lX blocks accessed (%6.2lf%% done)\n", strtime().c_str(), blocks_accessed, double(blocks_accessed * 100) / double(max_lba + 1));
 		       	next_status_print += STATUS_BLKCNT;
+			break;
 		}
 	} while (last != offset->Next());
 
