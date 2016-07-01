@@ -31,7 +31,7 @@ class LFSR {
 		}
 	public:
 		const uint8_t bits;
-		LFSR(const uint64_t & blocks, const uint64_t & seed = 1): next_value(seed), bits(n_bits(blocks)) {
+		LFSR(const uint64_t & blocks, const uint64_t & seed = getpid()): next_value(seed), bits(n_bits(blocks)) {
 			switch (bits) {
 				case 3:
 				case 4:
