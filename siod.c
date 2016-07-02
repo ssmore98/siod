@@ -536,6 +536,18 @@ static int slave(const std::string & argv0, const bool & is_write, const bool & 
 		       	next_status_print += STATUS_BLKCNT;
 		}
 	} while (last != offset->Next());
+       
+	while (1) {
+		bool done = true;
+	       	for (uint16_t i = 0; i < qdepth; i++) {
+		       	if (ios[i].used) {
+				done = false;
+				break;
+			}
+		}
+		if (done) break;
+		do_wait(key, fds, blocksize);
+	}
 
 	delete offset;
 	offset = NULL;
