@@ -502,6 +502,7 @@ static int slave(const std::string & argv0, const bool & is_write, const bool & 
 			for (unsigned int i = 8; i < 12; i++) {
 				blocksize = (blocksize << 8) + resp[i];
 			}
+			max_lba >>= 8;
        	}
 	if (logfp) gzprintf(logfp,  "%s UTC: Max LBA %016lX Block Size %u\n", strtime().c_str(), max_lba, blocksize);
 	else        fprintf(stderr, "%s UTC: Max LBA %016lX Block Size %u\n", strtime().c_str(), max_lba, blocksize);
@@ -527,6 +528,8 @@ static int slave(const std::string & argv0, const bool & is_write, const bool & 
 					do_read( key, blocksize, b, c, ios[i]);
 				}
 				blocks_accessed += c;
+				offset->Next();
+			       	if (last == *offset) break;
 			}
 		}
 		do_wait(key, fds, blocksize);
@@ -535,7 +538,7 @@ static int slave(const std::string & argv0, const bool & is_write, const bool & 
 			else        fprintf(stderr, "%s UTC: 0x%016lX blocks accessed (%6.2lf%% done)\n", strtime().c_str(), blocks_accessed, double(blocks_accessed * 100) / double(max_lba + 1));
 		       	next_status_print += STATUS_BLKCNT;
 		}
-	} while (last != offset->Next());
+	} while (last != *offset);
        
 	while (1) {
 		bool done = true;
