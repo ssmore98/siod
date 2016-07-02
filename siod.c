@@ -65,7 +65,23 @@ static std::string sense2str(const unsigned char * const sense);
 static void makeexit(const int & status) {
 	if (logfp) gzprintf(logfp,  "%s UTC: 0x%016lX blocks accessed\n", strtime().c_str(), blocks_accessed);
 	else        fprintf(stderr, "%s UTC: 0x%016lX blocks accessed\n", strtime().c_str(), blocks_accessed);
-       	if (logfp) gzclose(logfp);
+       	if (logfp) 
+		switch (gzclose(logfp)) {
+			case Z_OK:
+				break;
+			case Z_STREAM_ERROR:
+			       	fprintf(stderr, "%s UTC: GZIP error : file was NULL (or Z_NULL), or did not refer to an open compressed file stream\n", strtime().c_str());
+				break;
+			case Z_ERRNO:
+			       	fprintf(stderr, "%s UTC: GZIP error : %s\n", strtime().c_str(), strerror(errno));
+				break;
+			case Z_BUF_ERROR:
+			       	fprintf(stderr, "%s UTC: GZIP error : no compression progress is possible during buffer flush\n", strtime().c_str());
+				break;
+			default:
+			       	fprintf(stderr, "%s UTC: GZIP error : unknown error\n", strtime().c_str());
+				break;
+	       	}
 	exit(status);
 }
 
@@ -172,8 +188,6 @@ static unsigned char *RandomData(const uint8_t & key, const uint64_t & address, 
        	} else {
 	       	if (data != memset(data, 0, blocksize * blocks)) {
 		       	logprint(__FILE__, __LINE__, ErrorSyscall, true, "memset");
-		       	if (logfp) gzclose(logfp);
-		       	exit(-4);
 		}
        	}
        	return data;
@@ -422,14 +436,11 @@ static void do_wait(const uint8_t & key, const std::set<int> fds, const uint16_t
 
 static void print_usage(const std::string p) {
 	fprintf(stderr, "\nUsage:\n\n%s [rw] [rs] [0-9]+ [0-9]+ [0123] <logfile prefix> [0-9]+ ...\n\n", p.c_str());
-       	if (logfp) gzclose(logfp);
-	exit(-2);
+	makeexit(-2);
 }
 
 static void getout(int s) {
        	logprint(__FILE__, __LINE__, ErrorSignal, true, strsignal(s));
-	if (logfp) gzclose(logfp);
-	exit(-1);
 }
 
 static int slave(const std::string & argv0, const bool & is_write, const bool & is_random, const uint16_t & iosize, uint16_t & qdepth,
@@ -523,7 +534,6 @@ static int slave(const std::string & argv0, const bool & is_write, const bool & 
 		       	if (logfp) gzprintf(logfp,  "%s UTC: 0x%016lX blocks accessed (%6.2lf%% done)\n", strtime().c_str(), blocks_accessed, double(blocks_accessed * 100) / double(max_lba + 1));
 			else        fprintf(stderr, "%s UTC: 0x%016lX blocks accessed (%6.2lf%% done)\n", strtime().c_str(), blocks_accessed, double(blocks_accessed * 100) / double(max_lba + 1));
 		       	next_status_print += STATUS_BLKCNT;
-			break;
 		}
 	} while (last != offset->Next());
 
