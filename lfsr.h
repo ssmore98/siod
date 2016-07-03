@@ -2,6 +2,10 @@
 #define LFSR_H
 
 #include <stdint.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <stdlib.h>
+
 #include <map>
 #include <vector>
 
@@ -32,6 +36,10 @@ class LFSR {
 	public:
 		const uint8_t bits;
 		LFSR(const uint64_t & blocks, const uint64_t & seed = getpid()): next_value(seed), bits(n_bits(blocks)) {
+			next_value <<= 64 - n_bits(blocks);
+			next_value >>= 64 - n_bits(blocks);
+			while (next_value >= blocks) next_value >>= 1;
+			if (!next_value) next_value = 1;
 			switch (bits) {
 				case 3:
 				case 4:
@@ -289,11 +297,13 @@ class RandomOffset: public Offset {
 		LFSR lfsr;
 	public:
 		RandomOffset(const uint64_t & blocks): Offset(blocks), lfsr(blocks) {
+			offset = lfsr - 1;
 		}
 		uint64_t Next() {
 			while (1) {
 				offset = (lfsr++) - 1;
-			       	if (offset < blocks) return offset;
+			       	if (offset < blocks)
+				       	return offset;
 			}
 			abort();
 			return 0;
