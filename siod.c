@@ -454,10 +454,6 @@ static int slave(const std::string & argv0, const bool & is_write, const bool & 
 	       	logfp = gzopen(logfilename.c_str(), "wb");
 	       	if (!logfp) logprint(__FILE__, __LINE__, ErrorSyscall, false, "Cannot open log file");
 	       	if (logfp) gzbuffer(logfp, 256 * 1024);
-	       	if (logfp) gzprintf(logfp,  "%s UTC: %s %c %c %hu %hu %hu %s %s\n", strtime().c_str(), argv0.c_str(), is_write ? 'W' : 'R', is_random ? 'R' : 'S',
-			       	iosize, qdepth, key, device.c_str(), logfilename.c_str());
-		else        fprintf(stderr, "%s UTC: %s %c %c %hu %hu %hu %s %s\n", strtime().c_str(), argv0.c_str(), is_write ? 'W' : 'R', is_random ? 'R' : 'S',
-			       	iosize, qdepth, key, device.c_str(), logfilename.c_str());
 	}
 
 	IO *ios = new IO[qdepth];
@@ -468,7 +464,7 @@ static int slave(const std::string & argv0, const bool & is_write, const bool & 
 	{
 	       	int fd = -1;
 	       	for (uint16_t i = 0; i < qdepth; i++) {
-		       	if (0 == i % SG_MAX_QUEUE) {
+		       	if ((0 == i % SG_MAX_QUEUE) || (fd == -1)) {
 			       	fd = sg_cmds_open_device(device.c_str(), 0, 0);
 			       	if (fd < 0) {
 				       	logprint(__FILE__, __LINE__, ErrorSyscall, true, "open");
@@ -484,6 +480,39 @@ static int slave(const std::string & argv0, const bool & is_write, const bool & 
 		       	ios[i].me = i;
 		       	ios[i].fd = fd;
 	       	}
+		std::string sno("XXXXXXXX");
+		{
+		       	char resp[0x18];
+		       	bzero(resp, sizeof(resp));
+		       	switch (int retval = sg_ll_inquiry(fd, 0, 1, 0x80, resp, sizeof(resp), 0, 0)) {
+			       	case 0:
+					sno = "";
+				       	for (unsigned int i = 0x4; i < 0x18; i++) {
+					       	sno += resp[i];
+				       	}
+				       	break;
+				case SG_LIB_CAT_INVALID_OP:
+				       	logprint(__FILE__, __LINE__, ErrorSyscall, false, "sg_LL_inquiry(SG_LIB_CAT_INVALID_OP) : not supported");
+					break;
+				case SG_LIB_CAT_ILLEGAL_REQ:
+				       	logprint(__FILE__, __LINE__, ErrorSyscall, false, "sg_LL_inquiry(SG_LIB_CAT_ILLEGAL_REQ) : bad field in cdb");
+					break;
+				case SG_LIB_CAT_ABORTED_COMMAND:
+				       	logprint(__FILE__, __LINE__, ErrorSyscall, false, "sg_LL_inquiry(SG_LIB_CAT_ABORTED_COMMAND) : aborted command");
+					break;
+			       	default:
+					{
+						std::ostringstream o;
+						o << "sg_LL_inquiry(0x" << std::setfill('0') << std::hex << std::setw(2) <<retval << ") : unknown error";
+					       	logprint(__FILE__, __LINE__, ErrorSyscall, false, o.str());
+					       	break;
+					}
+		       	}
+		}
+	       	if (logfp) gzprintf(logfp,  "%s UTC: %s %c %c %hu %hu %hu %s %s %s\n", strtime().c_str(), argv0.c_str(), is_write ? 'W' : 'R', is_random ? 'R' : 'S',
+			       	iosize, qdepth, key, logfile_prefix.c_str(), device.c_str(), sno.c_str());
+		else        fprintf(stderr, "%s UTC: %s %c %c %hu %hu %hu %s %s %s\n", strtime().c_str(), argv0.c_str(), is_write ? 'W' : 'R', is_random ? 'R' : 'S',
+			       	iosize, qdepth, key, logfile_prefix.c_str(), device.c_str(), sno.c_str());
 	}
 
 	uint64_t max_lba = 0;
@@ -502,7 +531,7 @@ static int slave(const std::string & argv0, const bool & is_write, const bool & 
 			for (unsigned int i = 8; i < 12; i++) {
 				blocksize = (blocksize << 8) + resp[i];
 			}
-			max_lba >>= 8;
+			max_lba >>= 4;
        	}
 	if (logfp) gzprintf(logfp,  "%s UTC: Max LBA %016lX Block Size %u\n", strtime().c_str(), max_lba, blocksize);
 	else        fprintf(stderr, "%s UTC: Max LBA %016lX Block Size %u\n", strtime().c_str(), max_lba, blocksize);
