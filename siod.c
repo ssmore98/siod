@@ -508,28 +508,28 @@ static int slave(const std::string & argv0, const bool & is_write, const bool & 
 	       	}
 		std::string sno("XXXXXXXX");
 		{
-		       	char resp[0x18];
+		       	unsigned char resp[0x18];
 		       	bzero(resp, sizeof(resp));
 		       	switch (int retval = sg_ll_inquiry(fd, 0, 1, 0x80, resp, sizeof(resp), 0, 0)) {
 			       	case 0:
 					sno = "";
-				       	for (unsigned int i = 0x4; i < 0x18; i++) {
+				       	for (uint16_t i = 0x4; i < (0x4 + resp[3]); i++) {
 					       	sno += resp[i];
 				       	}
 				       	break;
 				case SG_LIB_CAT_INVALID_OP:
-				       	logprint(__FILE__, __LINE__, ErrorSyscall, false, "sg_LL_inquiry(SG_LIB_CAT_INVALID_OP) : not supported");
+				       	logprint(__FILE__, __LINE__, ErrorSyscall, false, "sg_ll_inquiry(SG_LIB_CAT_INVALID_OP) : not supported");
 					break;
 				case SG_LIB_CAT_ILLEGAL_REQ:
-				       	logprint(__FILE__, __LINE__, ErrorSyscall, false, "sg_LL_inquiry(SG_LIB_CAT_ILLEGAL_REQ) : bad field in cdb");
+				       	logprint(__FILE__, __LINE__, ErrorSyscall, false, "sg_ll_inquiry(SG_LIB_CAT_ILLEGAL_REQ) : bad field in cdb");
 					break;
 				case SG_LIB_CAT_ABORTED_COMMAND:
-				       	logprint(__FILE__, __LINE__, ErrorSyscall, false, "sg_LL_inquiry(SG_LIB_CAT_ABORTED_COMMAND) : aborted command");
+				       	logprint(__FILE__, __LINE__, ErrorSyscall, false, "sg_ll_inquiry(SG_LIB_CAT_ABORTED_COMMAND) : aborted command");
 					break;
 			       	default:
 					{
 						std::ostringstream o;
-						o << "sg_LL_inquiry(0x" << std::setfill('0') << std::hex << std::setw(2) <<retval << ") : unknown error";
+						o << "sg_ll_inquiry(0x" << std::setfill('0') << std::hex << std::setw(2) <<retval << ") : unknown error";
 					       	logprint(__FILE__, __LINE__, ErrorSyscall, false, o.str());
 					       	break;
 					}
@@ -548,8 +548,28 @@ static int slave(const std::string & argv0, const bool & is_write, const bool & 
 		       	if (resp != memset(resp, 0, sizeof(resp))) {
 				logprint(__FILE__, __LINE__, ErrorSyscall, true, "memset");
 		       	}
-			if (0 != sg_ll_readcap_16(ios[0].fd, 0, 0, resp, 32, 0, 0)) {
-				logprint(__FILE__, __LINE__, ErrorSyscall, true, "sg_ll_readcap_16");
+			switch (int retval = sg_ll_readcap_16(ios[0].fd, 0, 0, resp, 32, 0, 0)) {
+				case 0:
+					break;
+				case SG_LIB_CAT_UNIT_ATTENTION:
+				       	logprint(__FILE__, __LINE__, ErrorSyscall, true, "sg_ll_readcap_16(SG_LIB_CAT_UNIT_ATTENTION): unit attention");
+				case SG_LIB_CAT_INVALID_OP:
+				       	logprint(__FILE__, __LINE__, ErrorSyscall, true, "sg_ll_readcap_16(SG_LIB_CAT_INVALID_OP): cdb not supported");
+				case SG_LIB_CAT_ILLEGAL_REQ:
+				       	logprint(__FILE__, __LINE__, ErrorSyscall, true, "sg_ll_readcap_16(SG_LIB_CAT_IlLEGAL_REQ): bad field in cdb");
+				case SG_LIB_CAT_NOT_READY:
+				       	logprint(__FILE__, __LINE__, ErrorSyscall, true, "sg_ll_readcap_16(SG_LIB_CAT_NOT_READY): device not ready");
+				case SG_LIB_CAT_ABORTED_COMMAND:
+				       	logprint(__FILE__, __LINE__, ErrorSyscall, true, "sg_ll_readcap_16(SG_LIB_CAT_ABORTED_COMMAND): aborted command");
+				case -1:
+				       	logprint(__FILE__, __LINE__, ErrorSyscall, true, "sg_ll_readcap_16(-1): other error");
+				default:
+					{
+						std::ostringstream o;
+						o << "sg_ll_readcap_16(0x" << std::setfill('0') << std::hex << std::setw(2) <<retval << ") : unknown error";
+					       	logprint(__FILE__, __LINE__, ErrorSyscall, true, o.str());
+					       	break;
+					}
 			}
 			for (unsigned int i = 0; i < 8; i++) {
 				max_lba = (max_lba << 8) + resp[i];
