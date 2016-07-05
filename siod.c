@@ -38,6 +38,7 @@ typedef struct tagIO {
 static gzFile   logfp           = 0;
 static uint64_t blocks_accessed = 0;
 static bool     data_miscompare = false;
+static uint64_t data_key_count[4];
 
 typedef enum {ErrorNone, ErrorSyscall, ErrorIO, ErrorData, ErrorSignal, ErrorInternal} ErrorType;
 
@@ -194,15 +195,30 @@ static unsigned char *RandomData(const uint8_t & key, const uint64_t & address, 
 }
 
 static bool WrongData(const uint8_t & key, const uint64_t & address, const uint16_t & blocksize, const uint16_t & blocks, const unsigned char * const data) {
-	if (!key) return true;
-	const unsigned char * const xdata = RandomData(key, address, blocksize, blocks);
-	for (uint16_t i = 0; i < blocksize; i++) {
-		if (xdata[i] != data[i]) {
-			delete [] xdata;
-			return true;
+	if (key) {
+	       	const unsigned char * const xdata = RandomData(key, address, blocksize, blocks);
+	       	for (uint16_t j = 0; j < blocks; j++) {
+		       	for (uint16_t i = 0; i < blocksize; i++) {
+			       	if (xdata[j * blocksize + i] != data[j * blocksize + i]) {
+				       	delete [] xdata;
+				       	return true;
+			       	}
+		       	}
+		}
+	       	delete [] xdata;
+	} else {
+	       	for (uint16_t j = 0; j < blocks; j++) {
+		       	const uint8_t new_key = (data[j * blocksize] >> 6) & 0x3;
+		       	const unsigned char * const xdata = RandomData(new_key, address + j, blocksize, 1);
+		       	for (uint16_t i = 0; i < blocksize; i++) {
+			       	if (xdata[i] != data[j * blocksize + i]) {
+				       	delete [] xdata;
+				       	return true;
+			       	}
+		       	}
+		       	delete [] xdata;
 		}
 	}
-	delete [] xdata;
 	return false;
 }
 
@@ -412,8 +428,6 @@ static void do_wait(const uint8_t & key, const std::set<int> fds, const uint16_t
 							break;
 					}
 				       	if ((!in_error) && (SG_DXFER_FROM_DEV == io_hdr.dxfer_direction)) {
-						uint8_t new_key = key;
-						if (!new_key) new_key = (((unsigned char *)io_hdr.dxferp)[0] >> 6) & 0x3;
 						uint64_t address = 0;
 					       	for (unsigned int j = 0; j < 8; j++) {
 						       	address = (address << 8) | io_hdr.cmdp[2 + j];
@@ -422,7 +436,7 @@ static void do_wait(const uint8_t & key, const std::set<int> fds, const uint16_t
 					       	for (unsigned int j = 0; j < 2; j++) {
 						       	length = (length << 8) | io_hdr.cmdp[12 + j];
 					       	}
-					       	if (WrongData(new_key, address, blocksize, length, (unsigned char *)io_hdr.dxferp)) {
+					       	if (WrongData(key, address, blocksize, length, (unsigned char *)io_hdr.dxferp)) {
 						       	logprint(__FILE__, __LINE__, ErrorData, false, "", io->start, io->end, io->cdb);
 							data_miscompare = true;
 						}
@@ -445,6 +459,11 @@ static void getout(int s) {
 
 static int slave(const std::string & argv0, const bool & is_write, const bool & is_random, const uint16_t & iosize, uint16_t & qdepth,
 	       	const uint8_t & key, const std::string & logfile_prefix, const uint16_t & dno) {
+
+	data_key_count[0] = 0;
+	data_key_count[1] = 0;
+	data_key_count[2] = 0;
+	data_key_count[3] = 0;
 
 	const std::string device = std::string("/dev/sg") + std::to_string(dno);
 
@@ -531,7 +550,7 @@ static int slave(const std::string & argv0, const bool & is_write, const bool & 
 			for (unsigned int i = 8; i < 12; i++) {
 				blocksize = (blocksize << 8) + resp[i];
 			}
-			max_lba >>= 4;
+			max_lba >>= 8;
        	}
 	if (logfp) gzprintf(logfp,  "%s UTC: Max LBA %016lX Block Size %u\n", strtime().c_str(), max_lba, blocksize);
 	else        fprintf(stderr, "%s UTC: Max LBA %016lX Block Size %u\n", strtime().c_str(), max_lba, blocksize);
