@@ -64,8 +64,8 @@ static std::string cdb2str(const unsigned char * const cdb);
 static std::string sense2str(const unsigned char * const sense);
 
 static void makeexit(const int & status) {
-	if (logfp) gzprintf(logfp,  "%s UTC: 0x%016lX blocks accessed\n", strtime().c_str(), blocks_accessed);
-	else        fprintf(stderr, "%s UTC: 0x%016lX blocks accessed\n", strtime().c_str(), blocks_accessed);
+	if (logfp) gzprintf(logfp,  "%s UTC: 0x%016lX blocks accessed 0x%016lX 0x%016lX 0x%016lX 0x%016lX\n", strtime().c_str(), blocks_accessed, data_key_count[0], data_key_count[1], data_key_count[2], data_key_count[3]);
+	else        fprintf(stderr, "%s UTC: 0x%016lX blocks accessed 0x%016lX 0x%016lX 0x%016lX 0x%016lX\n", strtime().c_str(), blocks_accessed, data_key_count[0], data_key_count[1], data_key_count[2], data_key_count[3]);
        	if (logfp) 
 		switch (gzclose(logfp)) {
 			case Z_OK:
@@ -195,31 +195,38 @@ static unsigned char *RandomData(const uint8_t & key, const uint64_t & address, 
 }
 
 static bool WrongData(const uint8_t & key, const uint64_t & address, const uint16_t & blocksize, const uint16_t & blocks, const unsigned char * const data) {
+	bool retval = false;
 	if (key) {
 	       	const unsigned char * const xdata = RandomData(key, address, blocksize, blocks);
 	       	for (uint16_t j = 0; j < blocks; j++) {
+		       	data_key_count[key] += 1;
 		       	for (uint16_t i = 0; i < blocksize; i++) {
 			       	if (xdata[j * blocksize + i] != data[j * blocksize + i]) {
-				       	delete [] xdata;
-				       	return true;
+				       	retval = true;
+				       	data_key_count[0]   += 1;
+				       	data_key_count[key] -= 1;
+					break;
 			       	}
 		       	}
 		}
 	       	delete [] xdata;
 	} else {
 	       	for (uint16_t j = 0; j < blocks; j++) {
-		       	const uint8_t new_key = (data[j * blocksize] >> 6) & 0x3;
-		       	const unsigned char * const xdata = RandomData(new_key, address + j, blocksize, 1);
+		       	const uint8_t bkey = (data[j * blocksize] >> 6) & 0x3;
+		       	const unsigned char * const xdata = RandomData(bkey, address + j, blocksize, 1);
+		       	data_key_count[bkey] += 1;
 		       	for (uint16_t i = 0; i < blocksize; i++) {
 			       	if (xdata[i] != data[j * blocksize + i]) {
-				       	delete [] xdata;
-				       	return true;
+				       	retval = true;
+				       	data_key_count[0]    += 1;
+				       	data_key_count[bkey] -= 1;
+					break;
 			       	}
 		       	}
 		       	delete [] xdata;
 		}
 	}
-	return false;
+	return retval;
 }
 
 static void do_io(const uint8_t & key, const uint32_t & blocksize, const uint64_t & offset, const uint16_t & length, IO & io, const char & opcode, const int & dxfer_direction) {
