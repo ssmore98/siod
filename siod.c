@@ -63,24 +63,45 @@ static std::string strtime() {
 static std::string cdb2str(const unsigned char * const cdb);
 static std::string sense2str(const unsigned char * const sense);
 
+static std::string UINT64(const uint64_t & x) {
+	std::ostringstream o;
+	o << "0x" << std::setfill('0') << std::hex << std::setw(16) << x;
+	return o.str();
+}
+
+static std::string KeyCounts() {
+	std::ostringstream o;
+	o << UINT64(data_key_count[0]) << ' ';
+	o << UINT64(data_key_count[1]) << ' ';
+	o << UINT64(data_key_count[2]) << ' ';
+	o << UINT64(data_key_count[3]);
+	return o.str();
+}
+
+static std::string LoglineStart() {
+	std::ostringstream o;
+       	o << strtime() << " UTC:";
+	return o.str();
+}
+
 static void makeexit(const int & status) {
-	if (logfp) gzprintf(logfp,  "%s UTC: 0x%016lX blocks accessed 0x%016lX 0x%016lX 0x%016lX 0x%016lX\n", strtime().c_str(), blocks_accessed, data_key_count[0], data_key_count[1], data_key_count[2], data_key_count[3]);
-	else        fprintf(stderr, "%s UTC: 0x%016lX blocks accessed 0x%016lX 0x%016lX 0x%016lX 0x%016lX\n", strtime().c_str(), blocks_accessed, data_key_count[0], data_key_count[1], data_key_count[2], data_key_count[3]);
+	if (logfp) gzprintf(logfp,  "%s %s blocks accessed %s\n", LoglineStart().c_str(), UINT64(blocks_accessed).c_str(), KeyCounts().c_str());
+	else        fprintf(stderr, "%s %s blocks accessed %s\n", LoglineStart().c_str(), UINT64(blocks_accessed).c_str(), KeyCounts().c_str());
        	if (logfp) 
 		switch (gzclose(logfp)) {
 			case Z_OK:
 				break;
 			case Z_STREAM_ERROR:
-			       	fprintf(stderr, "%s UTC: GZIP error : file was NULL (or Z_NULL), or did not refer to an open compressed file stream\n", strtime().c_str());
+			       	fprintf(stderr, "%s GZIP error : file was NULL (or Z_NULL), or did not refer to an open compressed file stream\n", LoglineStart().c_str());
 				break;
 			case Z_ERRNO:
-			       	fprintf(stderr, "%s UTC: GZIP error : %s\n", strtime().c_str(), strerror(errno));
+			       	fprintf(stderr, "%s GZIP error : %s\n", LoglineStart().c_str(), strerror(errno));
 				break;
 			case Z_BUF_ERROR:
-			       	fprintf(stderr, "%s UTC: GZIP error : no compression progress is possible during buffer flush\n", strtime().c_str());
+			       	fprintf(stderr, "%s GZIP error : no compression progress is possible during buffer flush\n", LoglineStart().c_str());
 				break;
 			default:
-			       	fprintf(stderr, "%s UTC: GZIP error : unknown error\n", strtime().c_str());
+			       	fprintf(stderr, "%s GZIP error : unknown error\n", LoglineStart().c_str());
 				break;
 	       	}
 	exit(status);
@@ -89,7 +110,7 @@ static void makeexit(const int & status) {
 static void logprint(const char * const file, const int & line, const ErrorType & e, const bool & fatal, const std::string & s = std::string(), const double & start = 0, const double & end = 0,
 	       	const unsigned char * const cdb = NULL, const unsigned char * const sbp = NULL) {
 	std::ostringstream head;
-	head << strtime() << " UTC:" << file << ':' << line << ": ";
+       	head << LoglineStart() << file << ':' << line << ": ";
 	switch (e) {
 		case ErrorSyscall:
 			{
@@ -535,9 +556,9 @@ static int slave(const std::string & argv0, const bool & is_write, const bool & 
 					}
 		       	}
 		}
-	       	if (logfp) gzprintf(logfp,  "%s UTC: %s %c %c %hu %hu %hu %s %s %s\n", strtime().c_str(), argv0.c_str(), is_write ? 'W' : 'R', is_random ? 'R' : 'S',
+	       	if (logfp) gzprintf(logfp,  "%s %s %c %c %hu %hu %hu %s %s %s\n", LoglineStart().c_str(), argv0.c_str(), is_write ? 'W' : 'R', is_random ? 'R' : 'S',
 			       	iosize, qdepth, key, logfile_prefix.c_str(), device.c_str(), sno.c_str());
-		else        fprintf(stderr, "%s UTC: %s %c %c %hu %hu %hu %s %s %s\n", strtime().c_str(), argv0.c_str(), is_write ? 'W' : 'R', is_random ? 'R' : 'S',
+		else        fprintf(stderr, "%s %s %c %c %hu %hu %hu %s %s %s\n", LoglineStart().c_str(), argv0.c_str(), is_write ? 'W' : 'R', is_random ? 'R' : 'S',
 			       	iosize, qdepth, key, logfile_prefix.c_str(), device.c_str(), sno.c_str());
 	}
 
@@ -577,9 +598,10 @@ static int slave(const std::string & argv0, const bool & is_write, const bool & 
 			for (unsigned int i = 8; i < 12; i++) {
 				blocksize = (blocksize << 8) + resp[i];
 			}
+			max_lba >>= 11;
        	}
-	if (logfp) gzprintf(logfp,  "%s UTC: Max LBA %016lX Block Size %u\n", strtime().c_str(), max_lba, blocksize);
-	else        fprintf(stderr, "%s UTC: Max LBA %016lX Block Size %u\n", strtime().c_str(), max_lba, blocksize);
+	if (logfp) gzprintf(logfp,  "%s Max LBA %s Block Size %u\n", LoglineStart().c_str(), UINT64(max_lba).c_str(), blocksize);
+	else        fprintf(stderr, "%s Max LBA %s Block Size %u\n", LoglineStart().c_str(), UINT64(max_lba).c_str(), blocksize);
 
 	const uint64_t max_offsets = (max_lba + 1) / iosize + (((max_lba + 1) % iosize) ? 1 : 0);
 	Offset *offset = NULL;
@@ -608,8 +630,10 @@ static int slave(const std::string & argv0, const bool & is_write, const bool & 
 		}
 		do_wait(key, fds, blocksize);
 		if (blocks_accessed >= next_status_print) {
-		       	if (logfp) gzprintf(logfp,  "%s UTC: 0x%016lX blocks accessed (%6.2lf%% done)\n", strtime().c_str(), blocks_accessed, double(blocks_accessed * 100) / double(max_lba + 1));
-			else        fprintf(stderr, "%s UTC: 0x%016lX blocks accessed (%6.2lf%% done)\n", strtime().c_str(), blocks_accessed, double(blocks_accessed * 100) / double(max_lba + 1));
+		       	if (logfp) gzprintf(logfp,  "%s %s blocks accessed (%6.2lf%% done) %s\n", LoglineStart().c_str(), UINT64(blocks_accessed).c_str(), double(blocks_accessed * 100) / double(max_lba + 1),
+					KeyCounts().c_str());
+			else        fprintf(stderr, "%s %s blocks accessed (%6.2lf%% done) %s\n", LoglineStart().c_str(), UINT64(blocks_accessed).c_str(), double(blocks_accessed * 100) / double(max_lba + 1),
+					KeyCounts().c_str());
 		       	next_status_print += STATUS_BLKCNT;
 		}
 	} while (last != *offset);
