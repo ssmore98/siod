@@ -233,7 +233,7 @@ static bool WrongData(const uint8_t & key, const uint64_t & address, const uint1
 	       	delete [] xdata;
 	} else {
 	       	for (uint16_t j = 0; j < blocks; j++) {
-		       	const uint8_t bkey = (data[j * blocksize] >> 6) & 0x3;
+		       	const uint8_t bkey = ((*(uint64_t *)(data + j * blocksize)) >> 62) & 0x3;
 		       	const unsigned char * const xdata = RandomData(bkey, address + j, blocksize, 1);
 		       	data_key_count[bkey] += 1;
 		       	for (uint16_t i = 0; i < blocksize; i++) {
