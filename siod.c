@@ -598,7 +598,6 @@ static int slave(const std::string & argv0, const bool & is_write, const bool & 
 			for (unsigned int i = 8; i < 12; i++) {
 				blocksize = (blocksize << 8) + resp[i];
 			}
-			max_lba >>= 11;
        	}
 	if (logfp) gzprintf(logfp,  "%s Max LBA %s Block Size %u\n", LoglineStart().c_str(), UINT64(max_lba).c_str(), blocksize);
 	else        fprintf(stderr, "%s Max LBA %s Block Size %u\n", LoglineStart().c_str(), UINT64(max_lba).c_str(), blocksize);
@@ -613,6 +612,10 @@ static int slave(const std::string & argv0, const bool & is_write, const bool & 
 	const uint64_t last = *offset;
 	uint64_t next_status_print = STATUS_BLKCNT;
 	do {
+		{
+			blocks_accessed = max_lba + 1;
+			break;
+		}
 	       	for (uint16_t i = 0; i < qdepth; i++) {
 			if (false == ios[i].used) {
 				const uint64_t a = *offset;
@@ -691,7 +694,7 @@ int main(int argc, char **argv) {
 	if (SIG_ERR == signal(SIGTERM,   getout )) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
 	if (SIG_ERR == signal(SIGUSR1,   SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
 	if (SIG_ERR == signal(SIGUSR2,   SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
-	if (SIG_ERR == signal(SIGCHLD,   SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
+	// if (SIG_ERR == signal(SIGCHLD,   SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
 	if (SIG_ERR == signal(SIGTTIN,   SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
 	if (SIG_ERR == signal(SIGTTOU,   SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
 	if (SIG_ERR == signal(SIGBUS,    getout )) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
