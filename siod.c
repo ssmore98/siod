@@ -612,10 +612,6 @@ static int slave(const std::string & argv0, const bool & is_write, const bool & 
 	const uint64_t last = *offset;
 	uint64_t next_status_print = STATUS_BLKCNT;
 	do {
-		{
-			blocks_accessed = max_lba + 1;
-			break;
-		}
 	       	for (uint16_t i = 0; i < qdepth; i++) {
 			if (false == ios[i].used) {
 				const uint64_t a = *offset;
