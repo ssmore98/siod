@@ -1,3 +1,6 @@
+/*
+ * The requirements document is at https://docs.google.com/a/infinidat.com/document/d/1gD07lBKSKI8H1A4sUchQmPTxLFu9z2OraoEh29HTkQI/edit?usp=sharing
+ */
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -181,12 +184,16 @@ static double gettime() {
        	return time2double(t);
 }
 
-static unsigned char *RandomData(const uint8_t & key, const uint64_t & address, const uint16_t & blocksize, const uint16_t & blocks) {
+static unsigned char *RandomData(const uint8_t & key, const uint64_t & address, const uint16_t & blocksize, const uint16_t & blocks,
+		const unsigned char * const iddata) {
        	if (!blocks) {
 		logprint(__FILE__, __LINE__, ErrorInternal, true, std::string("Buffer size error ") + std::to_string(blocks));
 	}
+       	if (!iddata) {
+		logprint(__FILE__, __LINE__, ErrorInternal, true, std::string("Identification data error "));
+	}
        	uint64_t x = 0;
-       	if ((!blocksize) || (blocksize % sizeof(x))) {
+       	if ((!blocksize) || (blocksize % sizeof(x)) || (blocksize < 32)) {
 		logprint(__FILE__, __LINE__, ErrorInternal, true, std::string("Block size error ") + std::to_string(blocksize));
 	}
        	unsigned char * const data = new unsigned char[blocksize * blocks];
@@ -206,6 +213,7 @@ static unsigned char *RandomData(const uint8_t & key, const uint64_t & address, 
 				       	logprint(__FILE__, __LINE__, ErrorSyscall, true, "memcpy");
 			       	}
 		       	}
+			memcpy(data + 8, iddata, 24);
 		}
        	} else {
 	       	if (data != memset(data, 0, blocksize * blocks)) {
@@ -215,10 +223,10 @@ static unsigned char *RandomData(const uint8_t & key, const uint64_t & address, 
        	return data;
 }
 
-static bool WrongData(const uint8_t & key, const uint64_t & address, const uint16_t & blocksize, const uint16_t & blocks, const unsigned char * const data) {
+static bool WrongData(const uint8_t & key, const uint64_t & address, const uint16_t & blocksize, const uint16_t & blocks, const unsigned char * const data, const unsigned char * const iddata) {
 	bool retval = false;
 	if (key) {
-	       	const unsigned char * const xdata = RandomData(key, address, blocksize, blocks);
+	       	const unsigned char * const xdata = RandomData(key, address, blocksize, blocks, iddata);
 	       	for (uint16_t j = 0; j < blocks; j++) {
 		       	data_key_count[key] += 1;
 		       	for (uint16_t i = 0; i < blocksize; i++) {
@@ -234,7 +242,7 @@ static bool WrongData(const uint8_t & key, const uint64_t & address, const uint1
 	} else {
 	       	for (uint16_t j = 0; j < blocks; j++) {
 		       	const uint8_t bkey = ((*(uint64_t *)(data + j * blocksize)) >> 62) & 0x3;
-		       	const unsigned char * const xdata = RandomData(bkey, address + j, blocksize, 1);
+		       	const unsigned char * const xdata = RandomData(bkey, address + j, blocksize, 1, iddata);
 		       	data_key_count[bkey] += 1;
 		       	for (uint16_t i = 0; i < blocksize; i++) {
 			       	if (xdata[i] != data[j * blocksize + i]) {
@@ -250,7 +258,7 @@ static bool WrongData(const uint8_t & key, const uint64_t & address, const uint1
 	return retval;
 }
 
-static void do_io(const uint8_t & key, const uint32_t & blocksize, const uint64_t & offset, const uint16_t & length, IO & io, const char & opcode, const int & dxfer_direction) {
+static void do_io(const uint8_t & key, const uint32_t & blocksize, const uint64_t & offset, const uint16_t & length, IO & io, const char & opcode, const int & dxfer_direction, const unsigned char * const iddata) {
 	io.used = true;
 	io.start = io.end = gettime();
        	if (io.cdb != memset(io.cdb, 0, CDB_SIZE)) {
@@ -282,7 +290,7 @@ static void do_io(const uint8_t & key, const uint32_t & blocksize, const uint64_
 		       	logprint(__FILE__, __LINE__, ErrorSyscall, true, "memset");
 		}
 	} else {
-	       	io_hdr.dxferp = RandomData(key, offset, blocksize, length);
+	       	io_hdr.dxferp = RandomData(key, offset, blocksize, length, iddata);
 	}
        	io_hdr.cmdp            = io.cdb;
        	io_hdr.sbp             = io.sb;
@@ -297,15 +305,17 @@ static void do_io(const uint8_t & key, const uint32_t & blocksize, const uint64_
        	}
 }
 
-static void do_write(const uint8_t & key, const uint32_t & blocksize, const uint64_t & offset, const uint16_t & length, IO & io) {
-       	do_io(key, blocksize, offset, length, io, 0x8A, SG_DXFER_TO_DEV);
+static void do_write(const uint8_t & key, const uint32_t & blocksize, const uint64_t & offset, const uint16_t & length, IO & io,
+		const unsigned char * const iddata) {
+       	do_io(key, blocksize, offset, length, io, 0x8A, SG_DXFER_TO_DEV, iddata);
 }
 
-static void do_read(const uint8_t & key, const uint32_t & blocksize, const uint64_t & offset, const uint16_t & length, IO & io) {
-       	do_io(key, blocksize, offset, length, io, 0x88, SG_DXFER_FROM_DEV);
+static void do_read(const uint8_t & key, const uint32_t & blocksize, const uint64_t & offset, const uint16_t & length, IO & io,
+		const unsigned char * const iddata) {
+       	do_io(key, blocksize, offset, length, io, 0x88, SG_DXFER_FROM_DEV, iddata);
 }
 
-static void do_wait(const uint8_t & key, const std::set<int> fds, const uint16_t & blocksize) {
+static void do_wait(const uint8_t & key, const std::set<int> fds, const uint16_t & blocksize, const unsigned char * const iddata) {
        	fd_set FDS;
        	FD_ZERO(&FDS);
 	int maxfd = -1;
@@ -464,7 +474,7 @@ static void do_wait(const uint8_t & key, const std::set<int> fds, const uint16_t
 					       	for (unsigned int j = 0; j < 2; j++) {
 						       	length = (length << 8) | io_hdr.cmdp[12 + j];
 					       	}
-					       	if (WrongData(key, address, blocksize, length, (unsigned char *)io_hdr.dxferp)) {
+					       	if (WrongData(key, address, blocksize, length, (unsigned char *)io_hdr.dxferp, iddata)) {
 						       	logprint(__FILE__, __LINE__, ErrorData, false, "", io->start, io->end, io->cdb);
 							data_miscompare = true;
 						}
@@ -478,7 +488,7 @@ static void do_wait(const uint8_t & key, const std::set<int> fds, const uint16_t
 
 static void print_usage(const std::string p) {
 	fprintf(stderr, "\nUsage:\n\n%s <operation> <locality> <I/O size> <queue depth> <encoding> <logfile prefix> <device>+\n\n", p.c_str());
-	fprintf(stderr, "\tOpeartion   : [rw] read/write\n");
+	fprintf(stderr, "\tOperation   : [rw] read/write\n");
 	fprintf(stderr, "\tLocality    : [rs] random/sequential\n");
 	fprintf(stderr, "\tI/O size    : [0-9]+ number of blocks\n");
 	fprintf(stderr, "\tQueue depth : [0-9]+ \n");
@@ -497,7 +507,7 @@ static void getout(int s) {
 }
 
 static int slave(const std::string & argv0, const bool & is_write, const bool & is_random, const uint16_t & iosize, uint16_t & qdepth,
-	       	const uint8_t & key, const std::string & logfile_prefix, const uint16_t & dno) {
+	       	const uint8_t & key, const std::string & logfile_prefix, const uint16_t & dno, const unsigned char * const iddata) {
 
 	data_key_count[0] = 0;
 	data_key_count[1] = 0;
@@ -610,6 +620,7 @@ static int slave(const std::string & argv0, const bool & is_write, const bool & 
 				blocksize = (blocksize << 8) + resp[i];
 			}
        	}
+	max_lba = 12288000;
 	if (logfp) gzprintf(logfp,  "%s Max LBA %s Block Size %u\n", LoglineStart().c_str(), UINT64(max_lba).c_str(), blocksize);
 	else        fprintf(stderr, "%s Max LBA %s Block Size %u\n", LoglineStart().c_str(), UINT64(max_lba).c_str(), blocksize);
 
@@ -629,16 +640,16 @@ static int slave(const std::string & argv0, const bool & is_write, const bool & 
 				const uint64_t b =  a * iosize;
 				const uint32_t c =  (b + iosize - 1 <= max_lba) ? iosize : max_lba - b + 1;
 				if (is_write) {
-					do_write(key, blocksize, b, c, ios[i]);
+					do_write(key, blocksize, b, c, ios[i], iddata);
 				} else {
-					do_read( key, blocksize, b, c, ios[i]);
+					do_read( key, blocksize, b, c, ios[i], iddata);
 				}
 				blocks_accessed += c;
 				offset->Next();
 			       	if (last == *offset) break;
 			}
 		}
-		do_wait(key, fds, blocksize);
+		do_wait(key, fds, blocksize, iddata);
 		if (blocks_accessed >= next_status_print) {
 		       	if (logfp) gzprintf(logfp,  "%s %s blocks accessed (%6.2lf%% done) %s\n", LoglineStart().c_str(), UINT64(blocks_accessed).c_str(), double(blocks_accessed * 100) / double(max_lba + 1),
 					KeyCounts().c_str());
@@ -657,7 +668,7 @@ static int slave(const std::string & argv0, const bool & is_write, const bool & 
 			}
 		}
 		if (done) break;
-		do_wait(key, fds, blocksize);
+		do_wait(key, fds, blocksize, iddata);
 	}
 
 	delete offset;
@@ -781,45 +792,26 @@ int main(int argc, char **argv) {
 
 	const std::string logfile_prefix(argv[6]);
 
-	std::vector<uint16_t> dnos;
+	typedef struct tagDINFO {
+		uint16_t sgno;
+		uint64_t host_address;
+		uint64_t target_address;
+		uint64_t timestamp;
+	} DINFO;
+
+	std::vector<DINFO> dnos;
 	for (uint16_t i = 7; i < argc; i++) {
-		if (std::string::npos == std::string(argv[i]).find_first_of("-")) {
-		       	uint16_t dno;
-		       	if (1 != sscanf(argv[i], "%hu", &dno)) {
-			       	print_usage(argv[0]);
-		       	}
-		       	dnos.push_back(dno);
-		} else if (((std::string(argv[i]).find_first_of("-") == std::string(argv[i]).find_last_of("-")))
-			       	&& (0 != std::string(argv[i]).find_first_of("-"))
-			       	&& (std::string(argv[i]).size() - 1 > std::string(argv[i]).find_last_of("-"))) {
-			const std::string s(argv[i]);
-			const std::string s1(s.substr(0, s.find_first_of("-")));
-			const std::string s2(s.substr(s.find_first_of("-") + 1));
-		       	uint16_t dno1;
-		       	if (1 != sscanf(s1.c_str(), "%hu", &dno1)) {
-			       	print_usage(argv[0]);
-		       	}
-		       	uint16_t dno2;
-		       	if (1 != sscanf(s2.c_str(), "%hu", &dno2)) {
-			       	print_usage(argv[0]);
-		       	}
-			if (dno1 > dno2) {
-				const uint16_t x = dno1;
-				dno1 = dno2;
-				dno2 = x;
-			}
-			for (uint16_t j = dno1; j <= dno2; j++) {
-			       	dnos.push_back(j);
-			}
-		} else {
+		DINFO dno;
+	       	if (4 != sscanf(argv[i], "%hu:%lx:%lx:%lu", &dno.sgno, &dno.host_address, &dno.target_address, &dno.timestamp)) {
 		       	print_usage(argv[0]);
-		}
+	       	}
+	       	dnos.push_back(dno);
 	}
 
 	if (1 < dnos.size()) {
 		// The master process
 		std::set<pid_t> spids;
-		for (std::vector<uint16_t>::const_iterator i = dnos.begin(); i != dnos.end(); i++) {
+		for (std::vector<DINFO>::const_iterator i = dnos.begin(); i != dnos.end(); i++) {
 			pid_t spid;
 			switch (spid = fork()) {
 				case -1:
@@ -836,7 +828,7 @@ int main(int argc, char **argv) {
 							if (*j != waitpid(*j, &status, 0)) {
 								// wait failed for some reason
 								std::ostringstream s;
-								s << "waitpid(slave=" << *i << ",pid=" << *j << ")";
+								s << "waitpid(slave=" << i->sgno << ",pid=" << *j << ")";
 								logprint(__FILE__, __LINE__, ErrorSyscall, false, s.str());
 							}
 						}
@@ -844,7 +836,12 @@ int main(int argc, char **argv) {
 					return -7;
 				case 0:
 					// slave
-					return slave(argv[0], is_write, is_random, iosize, qdepth, key, logfile_prefix, *i);
+					unsigned char iddata[24];
+					memcpy(iddata, &(i->host_address), sizeof(uint64_t));
+					memcpy(iddata + sizeof(uint64_t), &(i->target_address), sizeof(uint64_t));
+					memcpy(iddata + 2 * sizeof(uint64_t), &(i->target_address), sizeof(uint64_t));
+					return slave(argv[0], is_write, is_random, iosize, qdepth, key, logfile_prefix,
+						       	i->sgno, iddata);
 				default:
 					// master
 					spids.insert(spid);
@@ -898,5 +895,10 @@ int main(int argc, char **argv) {
 		}
 		return retval;
 	}
-       	return slave(argv[0], is_write, is_random, iosize, qdepth, key, logfile_prefix, dnos[0]);
+	unsigned char iddata[24];
+	memcpy(iddata, &(dnos[0].host_address), sizeof(uint64_t));
+	memcpy(iddata + sizeof(uint64_t), &(dnos[0].target_address), sizeof(uint64_t));
+	memcpy(iddata + 2 * sizeof(uint64_t), &(dnos[0].target_address), sizeof(uint64_t));
+       	return slave(argv[0], is_write, is_random, iosize, qdepth, key, logfile_prefix,
+		       	dnos[0].sgno, iddata);
 }
