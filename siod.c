@@ -213,7 +213,7 @@ static unsigned char *RandomData(const uint8_t & key, const uint64_t & address, 
 				       	logprint(__FILE__, __LINE__, ErrorSyscall, true, "memcpy");
 			       	}
 		       	}
-			memcpy(data + 8, iddata, 24);
+			memcpy(data + k * blocksize + 8, iddata, 24);
 		}
        	} else {
 	       	if (data != memset(data, 0, blocksize * blocks)) {
@@ -488,16 +488,20 @@ static void do_wait(const uint8_t & key, const std::set<int> fds, const uint16_t
 
 static void print_usage(const std::string p) {
 	fprintf(stderr, "\nUsage:\n\n%s <operation> <locality> <I/O size> <queue depth> <encoding> <logfile prefix> <device>+\n\n", p.c_str());
-	fprintf(stderr, "\tOperation   : [rw] read/write\n");
-	fprintf(stderr, "\tLocality    : [rs] random/sequential\n");
-	fprintf(stderr, "\tI/O size    : [0-9]+ number of blocks\n");
-	fprintf(stderr, "\tQueue depth : [0-9]+ \n");
-	fprintf(stderr, "\tEncoding    : [0123]\n");
-	fprintf(stderr, "\t\t\t0 : Write - all zeroes      Read - detect encoding and check data (all zeros is invalid data)\n");
-	fprintf(stderr, "\t\t\t1 : Write - with encoding 1 Read - check for encoding 1\n");
-	fprintf(stderr, "\t\t\t2 : Write - with encoding 2 Read - check for encoding 2\n");
-	fprintf(stderr, "\t\t\t3 : Write - with encoding 3 Read - check for encoding 3\n");
-	fprintf(stderr, "\tDevice      : [0-9]+ The sg device number, device XXX refers to /dev/sgXXX\n");
+	fprintf(stderr, "\tOperation   - [rw] read/write\n");
+	fprintf(stderr, "\tLocality    - [rs] random/sequential\n");
+	fprintf(stderr, "\tI/O size    - [0-9]+ number of blocks\n");
+	fprintf(stderr, "\tQueue depth - [0-9]+ \n");
+	fprintf(stderr, "\tEncoding    - [0123]\n");
+	fprintf(stderr, "\t\t\t0 - Write -> all zeroes      Read -> detect encoding and check data (all zeros is invalid data)\n");
+	fprintf(stderr, "\t\t\t1 - Write -> with encoding 1 Read -> check for encoding 1\n");
+	fprintf(stderr, "\t\t\t2 - Write -> with encoding 2 Read -> check for encoding 2\n");
+	fprintf(stderr, "\t\t\t3 - Write -> with encoding 3 Read -> check for encoding 3\n");
+	fprintf(stderr, "\tDevice      - <sg>:<ha>:<ta>:<ts>\n");
+	fprintf(stderr, "\t\t\tsg - [0-9]+ The sg device number, device XXX refers to /dev/sgXXX\n");
+	fprintf(stderr, "\t\t\tha - [0-9a-fA-F]+ The host address as an 8 byte hexadecimal integer\n");
+	fprintf(stderr, "\t\t\tta - [0-9a-fA-F]+ The target address as an 8 byte hexadecimal integer\n");
+	fprintf(stderr, "\t\t\tts - [0-9]+ The time stamp as an 8 byte integer\n");
 	fprintf(stderr, "\n");
 	makeexit(-2);
 }
