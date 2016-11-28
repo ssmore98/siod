@@ -294,7 +294,7 @@ static void do_io(const uint8_t & key, const uint32_t & blocksize, const uint64_
 	}
        	io_hdr.cmdp            = io.cdb;
        	io_hdr.sbp             = io.sb;
-       	io_hdr.timeout         = 20000;     /* 20000 millisecs == 20 seconds */
+       	io_hdr.timeout         = 5000;     /* 5000 millisecs == 5 seconds */
        	io_hdr.flags           = SG_FLAG_LUN_INHIBIT | SG_FLAG_DIRECT_IO;
 	io_hdr.pack_id         = io.me;
 	io_hdr.usr_ptr         = &io;
