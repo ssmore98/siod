@@ -15,6 +15,11 @@
 #include <sys/time.h>
 #include <sys/wait.h>
 #include <zlib.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
 
 #include <string>
 #include <iostream>
@@ -42,6 +47,7 @@ static gzFile   logfp           = 0;
 static uint64_t blocks_accessed = 0;
 static bool     data_miscompare = false;
 static uint64_t data_key_count[4];
+static const char * const lockfile = "/tmp/siod.lck";
 
 typedef enum {ErrorNone, ErrorSyscall, ErrorIO, ErrorData, ErrorSignal, ErrorInternal} ErrorType;
 
@@ -511,7 +517,8 @@ static void getout(int s) {
 }
 
 static int slave(const std::string & argv0, const bool & is_write, const bool & is_random, const uint16_t & iosize, uint16_t & qdepth,
-	       	const uint8_t & key, const std::string & logfile_prefix, const uint16_t & dno, const unsigned char * const iddata) {
+	       	const uint8_t & key, const std::string & logfile_prefix, const uint16_t & dno, const unsigned char * const iddata,
+		const uint16_t & shmsize, const uint16_t & rank) {
 
 	data_key_count[0] = 0;
 	data_key_count[1] = 0;
@@ -526,6 +533,20 @@ static int slave(const std::string & argv0, const bool & is_write, const bool & 
 	       	logfp = gzopen(logfilename.c_str(), "wb");
 	       	if (!logfp) logprint(__FILE__, __LINE__, ErrorSyscall, false, "Cannot open log file");
 	       	if (logfp) gzbuffer(logfp, 256 * 1024);
+	}
+
+	char * shmp = NULL;
+	{
+		const int shmd = shmget(getppid(), shmsize, 0);
+		if (0 > shmd) {
+			logprint(__FILE__, __LINE__, ErrorSyscall, false, "shmget");
+		} else {
+			shmp = (char *)shmat(shmd, NULL, 0);
+		       	if ((void *)-1 == (void *)shmp) {
+				logprint(__FILE__, __LINE__, ErrorSyscall, false, "shmat");
+				shmp = NULL;
+			}
+		}
 	}
 
 	IO *ios = new IO[qdepth];
@@ -654,10 +675,12 @@ static int slave(const std::string & argv0, const bool & is_write, const bool & 
 		}
 		do_wait(key, fds, blocksize, iddata);
 		if (blocks_accessed >= next_status_print) {
-		       	if (logfp) gzprintf(logfp,  "%s %s blocks accessed (%6.2lf%% done) %s\n", LoglineStart().c_str(), UINT64(blocks_accessed).c_str(), double(blocks_accessed * 100) / double(max_lba + 1),
-					KeyCounts().c_str());
-			else        fprintf(stderr, "%s %s blocks accessed (%6.2lf%% done) %s\n", LoglineStart().c_str(), UINT64(blocks_accessed).c_str(), double(blocks_accessed * 100) / double(max_lba + 1),
-					KeyCounts().c_str());
+			const double pdone = double(blocks_accessed * 100) / double(max_lba + 1);
+		       	if (logfp) gzprintf(logfp,  "%s %s blocks accessed (%6.2lf%% done) %s\n", LoglineStart().c_str(),
+				       	UINT64(blocks_accessed).c_str(), pdone, KeyCounts().c_str());
+			else        fprintf(stderr, "%s %s blocks accessed (%6.2lf%% done) %s\n", LoglineStart().c_str(),
+				       	UINT64(blocks_accessed).c_str(), pdone, KeyCounts().c_str());
+			if (shmp) shmp[rank] = uint8_t(pdone);
 		       	next_status_print += STATUS_BLKCNT;
 		}
 	} while (last != *offset);
@@ -684,6 +707,13 @@ static int slave(const std::string & argv0, const bool & is_write, const bool & 
 	}
 
 	if (data_miscompare) makeexit(-6);
+
+	if (shmp) {
+		shmp[rank] = 0xFF;
+		if (shmdt(shmp)) {
+		       	logprint(__FILE__, __LINE__, ErrorSyscall, false, "shmdt");
+		}
+	}
 
 	makeexit(0);
 	return 0;
@@ -773,8 +803,6 @@ int main(int argc, char **argv) {
 	       	print_usage(argv[0]);
 	}
 
-
-
 	uint8_t key = 0;
 	switch (argv[5][0]) {
 		case '0':
@@ -811,9 +839,48 @@ int main(int argc, char **argv) {
 	       	dnos.push_back(dno);
 	}
 
+	{
+		// create a lock file in /tmp
+		const int fd = open(lockfile, O_WRONLY | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+		if (0 > fd) {
+			fprintf(stderr, "lockfile(open): %s", strerror(errno));
+			return -4;
+		}
+		FILE * const fp = fdopen(fd, "w");
+		if (NULL == fp) {
+			fprintf(stderr, "lockfile(fdopen): %s", strerror(errno));
+			return -4;
+		}
+		fprintf(fp, "%d\n", getpid());
+		if (fclose(fp)) {
+			fprintf(stderr, "lockfile(fclose): %s", strerror(errno));
+			return -4;
+		}
+	}
+
+	{
+		// create a shared memory segment to track slave progress
+		const int shmd = shmget(getpid(), dnos.size(), IPC_CREAT | IPC_EXCL | S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+		if (0 > shmd) {
+			fprintf(stderr, "shmget: %s", strerror(errno));
+			return -4;
+		}
+		void * const shm_status = shmat(shmd, NULL, 0);
+		if ((void *)-1 == shm_status) {
+			fprintf(stderr, "shmat: %s", strerror(errno));
+			return -4;
+		}
+		bzero(shm_status, dnos.size());
+		if (shmdt(shm_status)) {
+			fprintf(stderr, "shmdt: %s", strerror(errno));
+			return -4;
+		}
+	}
+
 	if (1 < dnos.size()) {
 		// The master process
 		std::set<pid_t> spids;
+		uint16_t rank = 0;
 		for (std::vector<DINFO>::const_iterator i = dnos.begin(); i != dnos.end(); i++) {
 			pid_t spid;
 			switch (spid = fork()) {
@@ -844,12 +911,13 @@ int main(int argc, char **argv) {
 					memcpy(iddata + sizeof(uint64_t), &(i->target_address), sizeof(uint64_t));
 					memcpy(iddata + 2 * sizeof(uint64_t), &(i->target_address), sizeof(uint64_t));
 					return slave(argv[0], is_write, is_random, iosize, qdepth, key, logfile_prefix,
-						       	i->sgno, iddata);
+						       	i->sgno, iddata, dnos.size(), rank);
 				default:
 					// master
 					spids.insert(spid);
 					break;
 			}
+			rank++;
 		}
 		// master tries to ignore all signals
 		if (SIG_ERR == signal(SIGHUP,    SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
@@ -896,12 +964,45 @@ int main(int argc, char **argv) {
 				retval = status;
 			}
 		}
+		if (unlink(lockfile)) {
+			fprintf(stderr, "lockfile(unlink): %s", strerror(errno));
+			return -4;
+		}
+		{
+			// delete the shared memory segment to track slave progress
+			const int shmd = shmget(getpid(), dnos.size(), 0);
+			if (0 > shmd) {
+				fprintf(stderr, "shmget: %s", strerror(errno));
+				return -4;
+			}
+			if (shmctl(shmd, IPC_RMID, NULL)) {
+				fprintf(stderr, "shmctl(IPC_RMID): %s", strerror(errno));
+				return -4;
+			}
+		}
 		return retval;
 	}
 	unsigned char iddata[24];
 	memcpy(iddata, &(dnos[0].host_address), sizeof(uint64_t));
 	memcpy(iddata + sizeof(uint64_t), &(dnos[0].target_address), sizeof(uint64_t));
 	memcpy(iddata + 2 * sizeof(uint64_t), &(dnos[0].target_address), sizeof(uint64_t));
-       	return slave(argv[0], is_write, is_random, iosize, qdepth, key, logfile_prefix,
-		       	dnos[0].sgno, iddata);
+       	const int retval = slave(argv[0], is_write, is_random, iosize, qdepth, key, logfile_prefix,
+		       	dnos[0].sgno, iddata, 1, 0);
+	if (unlink(lockfile)) {
+		fprintf(stderr, "lockfile(unlink): %s", strerror(errno));
+		return -4;
+	}
+	{
+		// delete the shared memory segment to track slave progress
+		const int shmd = shmget(getpid(), dnos.size(), 0);
+		if (0 > shmd) {
+			fprintf(stderr, "shmget: %s", strerror(errno));
+			return -4;
+		}
+		if (shmctl(shmd, IPC_RMID, NULL)) {
+			fprintf(stderr, "shmctl(IPC_RMID): %s", strerror(errno));
+			return -4;
+		}
+	}
+	return retval;
 }
