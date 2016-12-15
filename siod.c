@@ -29,6 +29,7 @@
 #include <sstream>
 
 #include "lfsr.h"
+#include "siod.h"
 
 #define CDB_SIZE     ((uint16_t)16)
 #define SENSE_LENGTH ((uint16_t)32)
@@ -47,7 +48,6 @@ static gzFile   logfp           = 0;
 static uint64_t blocks_accessed = 0;
 static bool     data_miscompare = false;
 static uint64_t data_key_count[4];
-static const char * const lockfile = "/tmp/siod.lck";
 
 typedef enum {ErrorNone, ErrorSyscall, ErrorIO, ErrorData, ErrorSignal, ErrorInternal} ErrorType;
 
@@ -91,6 +91,20 @@ static std::string LoglineStart() {
 	std::ostringstream o;
        	o << strtime() << " UTC:";
 	return o.str();
+}
+
+static bool DeleteSHM(const key_t & shmkey) {
+	// delete the shared memory segment to track slave progress
+	const int shmd = shmget(shmkey, 0, 0);
+	if (0 > shmd) {
+		fprintf(stderr, "shmget: %s", strerror(errno));
+		return true;
+	}
+	if (shmctl(shmd, IPC_RMID, NULL)) {
+		fprintf(stderr, "shmctl(IPC_RMID): %s", strerror(errno));
+		return true;
+	}
+	return false;
 }
 
 static void makeexit(const int & status) {
@@ -517,8 +531,7 @@ static void getout(int s) {
 }
 
 static int slave(const std::string & argv0, const bool & is_write, const bool & is_random, const uint16_t & iosize, uint16_t & qdepth,
-	       	const uint8_t & key, const std::string & logfile_prefix, const uint16_t & dno, const unsigned char * const iddata,
-		const uint16_t & shmsize, const uint16_t & rank) {
+	       	const uint8_t & key, const std::string & logfile_prefix, const uint16_t & dno, const unsigned char * const iddata, const uint16_t & rank, const key_t & shmkey) {
 
 	data_key_count[0] = 0;
 	data_key_count[1] = 0;
@@ -537,7 +550,7 @@ static int slave(const std::string & argv0, const bool & is_write, const bool & 
 
 	char * shmp = NULL;
 	{
-		const int shmd = shmget(getppid(), shmsize, 0);
+		const int shmd = shmget(shmkey, 0, 0);
 		if (0 > shmd) {
 			logprint(__FILE__, __LINE__, ErrorSyscall, false, "shmget");
 		} else {
@@ -706,14 +719,14 @@ static int slave(const std::string & argv0, const bool & is_write, const bool & 
 	       	sg_cmds_close_device(*i);
 	}
 
-	if (data_miscompare) makeexit(-6);
-
 	if (shmp) {
 		shmp[rank] = 0xFF;
 		if (shmdt(shmp)) {
 		       	logprint(__FILE__, __LINE__, ErrorSyscall, false, "shmdt");
 		}
 	}
+
+	if (data_miscompare) makeexit(-6);
 
 	makeexit(0);
 	return 0;
@@ -843,41 +856,49 @@ int main(int argc, char **argv) {
 		// create a lock file in /tmp
 		const int fd = open(lockfile, O_WRONLY | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
 		if (0 > fd) {
-			fprintf(stderr, "lockfile(open): %s", strerror(errno));
+			fprintf(stderr, "lockfile(open): %s\n", strerror(errno));
 			return -4;
 		}
 		FILE * const fp = fdopen(fd, "w");
 		if (NULL == fp) {
-			fprintf(stderr, "lockfile(fdopen): %s", strerror(errno));
+			fprintf(stderr, "lockfile(fdopen): %s\n", strerror(errno));
+			unlink(lockfile);
 			return -4;
 		}
 		fprintf(fp, "%d\n", getpid());
 		if (fclose(fp)) {
-			fprintf(stderr, "lockfile(fclose): %s", strerror(errno));
+			fprintf(stderr, "lockfile(fclose): %s\n", strerror(errno));
+			unlink(lockfile);
 			return -4;
 		}
 	}
 
+	const key_t shmkey = getpid();
 	{
 		// create a shared memory segment to track slave progress
-		const int shmd = shmget(getpid(), dnos.size(), IPC_CREAT | IPC_EXCL | S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+		const int shmd = shmget(shmkey, dnos.size(), IPC_CREAT | IPC_EXCL | S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
 		if (0 > shmd) {
 			fprintf(stderr, "shmget: %s", strerror(errno));
+			unlink(lockfile);
 			return -4;
 		}
 		void * const shm_status = shmat(shmd, NULL, 0);
 		if ((void *)-1 == shm_status) {
 			fprintf(stderr, "shmat: %s", strerror(errno));
+			unlink(lockfile);
+       			DeleteSHM(shmkey);
 			return -4;
 		}
 		bzero(shm_status, dnos.size());
 		if (shmdt(shm_status)) {
 			fprintf(stderr, "shmdt: %s", strerror(errno));
+			unlink(lockfile);
+       			DeleteSHM(shmkey);
 			return -4;
 		}
 	}
 
-	if (1 < dnos.size()) {
+	// if (1 < dnos.size()) {
 		// The master process
 		std::set<pid_t> spids;
 		uint16_t rank = 0;
@@ -903,6 +924,8 @@ int main(int argc, char **argv) {
 							}
 						}
 					}
+					unlink(lockfile);
+       					DeleteSHM(shmkey);
 					return -7;
 				case 0:
 					// slave
@@ -911,7 +934,7 @@ int main(int argc, char **argv) {
 					memcpy(iddata + sizeof(uint64_t), &(i->target_address), sizeof(uint64_t));
 					memcpy(iddata + 2 * sizeof(uint64_t), &(i->target_address), sizeof(uint64_t));
 					return slave(argv[0], is_write, is_random, iosize, qdepth, key, logfile_prefix,
-						       	i->sgno, iddata, dnos.size(), rank);
+						       	i->sgno, iddata, rank, shmkey);
 				default:
 					// master
 					spids.insert(spid);
@@ -968,41 +991,23 @@ int main(int argc, char **argv) {
 			fprintf(stderr, "lockfile(unlink): %s", strerror(errno));
 			return -4;
 		}
-		{
-			// delete the shared memory segment to track slave progress
-			const int shmd = shmget(getpid(), dnos.size(), 0);
-			if (0 > shmd) {
-				fprintf(stderr, "shmget: %s", strerror(errno));
-				return -4;
-			}
-			if (shmctl(shmd, IPC_RMID, NULL)) {
-				fprintf(stderr, "shmctl(IPC_RMID): %s", strerror(errno));
-				return -4;
-			}
+       		if (DeleteSHM(shmkey)) {
+			return (retval ? retval : -4);
 		}
 		return retval;
-	}
-	unsigned char iddata[24];
-	memcpy(iddata, &(dnos[0].host_address), sizeof(uint64_t));
-	memcpy(iddata + sizeof(uint64_t), &(dnos[0].target_address), sizeof(uint64_t));
-	memcpy(iddata + 2 * sizeof(uint64_t), &(dnos[0].target_address), sizeof(uint64_t));
-       	const int retval = slave(argv[0], is_write, is_random, iosize, qdepth, key, logfile_prefix,
-		       	dnos[0].sgno, iddata, 1, 0);
-	if (unlink(lockfile)) {
-		fprintf(stderr, "lockfile(unlink): %s", strerror(errno));
-		return -4;
-	}
-	{
-		// delete the shared memory segment to track slave progress
-		const int shmd = shmget(getpid(), dnos.size(), 0);
-		if (0 > shmd) {
-			fprintf(stderr, "shmget: %s", strerror(errno));
-			return -4;
-		}
-		if (shmctl(shmd, IPC_RMID, NULL)) {
-			fprintf(stderr, "shmctl(IPC_RMID): %s", strerror(errno));
-			return -4;
-		}
-	}
-	return retval;
+	// }
+	// unsigned char iddata[24];
+	// memcpy(iddata, &(dnos[0].host_address), sizeof(uint64_t));
+	// memcpy(iddata + sizeof(uint64_t), &(dnos[0].target_address), sizeof(uint64_t));
+	// memcpy(iddata + 2 * sizeof(uint64_t), &(dnos[0].target_address), sizeof(uint64_t));
+       	// const int retval = slave(argv[0], is_write, is_random, iosize, qdepth, key, logfile_prefix,
+	// 	       	dnos[0].sgno, iddata, 0, shmkey);
+	// if (unlink(lockfile)) {
+		// fprintf(stderr, "lockfile(unlink): %s", strerror(errno));
+		// return -4;
+	// }
+       	// if (DeleteSHM(shmkey)) {
+		// return -4;
+	// }
+	// return retval;
 }
