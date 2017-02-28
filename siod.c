@@ -732,20 +732,7 @@ static int slave(const std::string & argv0, const bool & is_write, const bool & 
 	return 0;
 }
 
-/*
- * Exit codes:
- *  0 : Normal Termination
- * -1 : caught signal (ErrorSignal)
- * -2 : error in command line parameters
- * -3 : error accessing the device
- * -4 : system call error (ErrorSyscall)
- * -5 :
- * -6 : data miscompare
- * -7 : cannot start slave processes
- * -8 : internal error (ErrorInternal)
- */
-int main(int argc, char **argv) {
-
+static void slave_signal_assignment() {
 	if (SIG_ERR == signal(SIGHUP,    SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
 	if (SIG_ERR == signal(SIGINT,    getout )) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
 	if (SIG_ERR == signal(SIGQUIT,   getout )) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
@@ -774,6 +761,55 @@ int main(int argc, char **argv) {
 	if (SIG_ERR == signal(SIGIO,     SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
 	if (SIG_ERR == signal(SIGPWR,    getout )) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
 	if (SIG_ERR == signal(SIGWINCH,  SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
+}
+
+static void master_signal_assignment() {
+		// master tries to ignore all signals
+		if (SIG_ERR == signal(SIGHUP,    SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
+		if (SIG_ERR == signal(SIGINT,    SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
+		if (SIG_ERR == signal(SIGQUIT,   SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
+		if (SIG_ERR == signal(SIGILL,    SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
+		if (SIG_ERR == signal(SIGABRT,   SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
+		if (SIG_ERR == signal(SIGFPE,    SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
+		if (SIG_ERR == signal(SIGSEGV,   SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
+		if (SIG_ERR == signal(SIGPIPE,   SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
+		if (SIG_ERR == signal(SIGALRM,   SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
+		if (SIG_ERR == signal(SIGTERM,   SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
+		if (SIG_ERR == signal(SIGUSR1,   SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
+		if (SIG_ERR == signal(SIGUSR2,   SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
+		if (SIG_ERR == signal(SIGCHLD,   SIG_DFL)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal"); // to allow the master to get the return from the slaves
+		if (SIG_ERR == signal(SIGTTIN,   SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
+		if (SIG_ERR == signal(SIGTTOU,   SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
+		if (SIG_ERR == signal(SIGBUS,    SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
+		if (SIG_ERR == signal(SIGPOLL,   SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
+		if (SIG_ERR == signal(SIGPROF,   SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
+		if (SIG_ERR == signal(SIGSYS,    SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
+		if (SIG_ERR == signal(SIGTRAP,   SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
+		if (SIG_ERR == signal(SIGURG,    SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
+		if (SIG_ERR == signal(SIGVTALRM, SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
+		if (SIG_ERR == signal(SIGXCPU,   SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
+		if (SIG_ERR == signal(SIGXFSZ,   SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
+		if (SIG_ERR == signal(SIGSTKFLT, SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
+		if (SIG_ERR == signal(SIGIO,     SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
+		if (SIG_ERR == signal(SIGPWR,    SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
+		if (SIG_ERR == signal(SIGWINCH,  SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
+}
+
+/*
+ * Exit codes:
+ *  0 : Normal Termination
+ * -1 : caught signal (ErrorSignal)
+ * -2 : error in command line parameters
+ * -3 : error accessing the device
+ * -4 : system call error (ErrorSyscall)
+ * -5 :
+ * -6 : data miscompare
+ * -7 : cannot start slave processes
+ * -8 : internal error (ErrorInternal)
+ */
+int main(int argc, char **argv) {
+
+    slave_signal_assignment();
 
 	if (argc < 8) {
 		print_usage(argv[0]);
@@ -898,116 +934,73 @@ int main(int argc, char **argv) {
 		}
 	}
 
-	// if (1 < dnos.size()) {
-		// The master process
-		std::set<pid_t> spids;
-		uint16_t rank = 0;
-		for (std::vector<DINFO>::const_iterator i = dnos.begin(); i != dnos.end(); i++) {
-			pid_t spid;
-			switch (spid = fork()) {
-				case -1:
-					// fork failed
-					if (0 < spids.size()) {
-						// kill slaves
-						for (std::set<pid_t>::const_iterator j = spids.begin(); j != spids.end(); j++) {
-						       	if (kill(*j, SIGTERM)) {
-							       	kill(*j, SIGKILL);
-							}
-						}
-						for (std::set<pid_t>::const_iterator j = spids.begin(); j != spids.end(); j++) {
-							int status = 0;
-							if (*j != waitpid(*j, &status, 0)) {
-								// wait failed for some reason
-								std::ostringstream s;
-								s << "waitpid(slave=" << i->sgno << ",pid=" << *j << ")";
-								logprint(__FILE__, __LINE__, ErrorSyscall, false, s.str());
-							}
+	// The master process
+	std::set<pid_t> spids;
+	uint16_t rank = 0;
+	for (std::vector<DINFO>::const_iterator i = dnos.begin(); i != dnos.end(); i++) {
+		pid_t spid;
+		switch (spid = fork()) {
+			case -1:
+				// fork failed
+				if (0 < spids.size()) {
+					// kill slaves
+					for (std::set<pid_t>::const_iterator j = spids.begin(); j != spids.end(); j++) {
+					       	if (kill(*j, SIGTERM)) {
+						       	kill(*j, SIGKILL);
 						}
 					}
-					unlink(lockfile);
-       					DeleteSHM(shmkey);
-					return -7;
-				case 0:
-					// slave
-					unsigned char iddata[24];
-					memcpy(iddata, &(i->host_address), sizeof(uint64_t));
-					memcpy(iddata + sizeof(uint64_t), &(i->target_address), sizeof(uint64_t));
-					memcpy(iddata + 2 * sizeof(uint64_t), &(i->target_address), sizeof(uint64_t));
-					return slave(argv[0], is_write, is_random, iosize, qdepth, key, logfile_prefix,
-						       	i->sgno, iddata, rank, shmkey);
-				default:
-					// master
-					spids.insert(spid);
-					break;
-			}
-			rank++;
+					for (std::set<pid_t>::const_iterator j = spids.begin(); j != spids.end(); j++) {
+						int status = 0;
+						if (*j != waitpid(*j, &status, 0)) {
+							// wait failed for some reason
+							std::ostringstream s;
+							s << "waitpid(slave=" << i->sgno << ",pid=" << *j << ")";
+							logprint(__FILE__, __LINE__, ErrorSyscall, false, s.str());
+						}
+					}
+				}
+				unlink(lockfile);
+   					DeleteSHM(shmkey);
+				return -7;
+			case 0:
+				// slave
+				unsigned char iddata[24];
+				memcpy(iddata, &(i->host_address), sizeof(uint64_t));
+				memcpy(iddata + sizeof(uint64_t), &(i->target_address), sizeof(uint64_t));
+				memcpy(iddata + 2 * sizeof(uint64_t), &(i->target_address), sizeof(uint64_t));
+				return slave(argv[0], is_write, is_random, iosize, qdepth, key, logfile_prefix,
+					       	i->sgno, iddata, rank, shmkey);
+			default:
+				// master
+				spids.insert(spid);
+				break;
 		}
-		// master tries to ignore all signals
-		if (SIG_ERR == signal(SIGHUP,    SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
-		if (SIG_ERR == signal(SIGINT,    SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
-		if (SIG_ERR == signal(SIGQUIT,   SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
-		if (SIG_ERR == signal(SIGILL,    SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
-		if (SIG_ERR == signal(SIGABRT,   SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
-		if (SIG_ERR == signal(SIGFPE,    SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
-		if (SIG_ERR == signal(SIGSEGV,   SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
-		if (SIG_ERR == signal(SIGPIPE,   SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
-		if (SIG_ERR == signal(SIGALRM,   SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
-		if (SIG_ERR == signal(SIGTERM,   SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
-		if (SIG_ERR == signal(SIGUSR1,   SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
-		if (SIG_ERR == signal(SIGUSR2,   SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
-		if (SIG_ERR == signal(SIGCHLD,   SIG_DFL)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal"); // to allow the master to get the return from the slaves
-		if (SIG_ERR == signal(SIGTTIN,   SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
-		if (SIG_ERR == signal(SIGTTOU,   SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
-		if (SIG_ERR == signal(SIGBUS,    SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
-		if (SIG_ERR == signal(SIGPOLL,   SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
-		if (SIG_ERR == signal(SIGPROF,   SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
-		if (SIG_ERR == signal(SIGSYS,    SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
-		if (SIG_ERR == signal(SIGTRAP,   SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
-		if (SIG_ERR == signal(SIGURG,    SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
-		if (SIG_ERR == signal(SIGVTALRM, SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
-		if (SIG_ERR == signal(SIGXCPU,   SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
-		if (SIG_ERR == signal(SIGXFSZ,   SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
-		if (SIG_ERR == signal(SIGSTKFLT, SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
-		if (SIG_ERR == signal(SIGIO,     SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
-		if (SIG_ERR == signal(SIGPWR,    SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
-		if (SIG_ERR == signal(SIGWINCH,  SIG_IGN)) logprint(__FILE__, __LINE__, ErrorSyscall, true, "signal");
+		rank++;
+	}
 
-		int retval = 0;
-		for (std::set<pid_t>::const_iterator j = spids.begin(); j != spids.end(); j++) {
-			int status = 0;
-			pid_t x;
-			if (*j != (x = waitpid(*j, &status, 0))) {
-				// wait failed for some reason
-				std::ostringstream s;
-				s << "waitpid(pid=" << *j << ")";
-				logprint(__FILE__, __LINE__, ErrorSyscall, false, s.str());
-				retval = -7;
-			}
-			if (!retval && status) {
-				retval = status;
-			}
+    master_signal_assignment();
+
+	int retval = 0;
+	for (std::set<pid_t>::const_iterator j = spids.begin(); j != spids.end(); j++) {
+		int status = 0;
+		pid_t x;
+		if (*j != (x = waitpid(*j, &status, 0))) {
+			// wait failed for some reason
+			std::ostringstream s;
+			s << "waitpid(pid=" << *j << ")";
+			logprint(__FILE__, __LINE__, ErrorSyscall, false, s.str());
+			retval = -7;
 		}
-		if (unlink(lockfile)) {
-			fprintf(stderr, "lockfile(unlink): %s", strerror(errno));
-			return -4;
+		if (!retval && status) {
+			retval = status;
 		}
-       		if (DeleteSHM(shmkey)) {
-			return (retval ? retval : -4);
-		}
-		return retval;
-	// }
-	// unsigned char iddata[24];
-	// memcpy(iddata, &(dnos[0].host_address), sizeof(uint64_t));
-	// memcpy(iddata + sizeof(uint64_t), &(dnos[0].target_address), sizeof(uint64_t));
-	// memcpy(iddata + 2 * sizeof(uint64_t), &(dnos[0].target_address), sizeof(uint64_t));
-       	// const int retval = slave(argv[0], is_write, is_random, iosize, qdepth, key, logfile_prefix,
-	// 	       	dnos[0].sgno, iddata, 0, shmkey);
-	// if (unlink(lockfile)) {
-		// fprintf(stderr, "lockfile(unlink): %s", strerror(errno));
-		// return -4;
-	// }
-       	// if (DeleteSHM(shmkey)) {
-		// return -4;
-	// }
-	// return retval;
+	}
+	if (unlink(lockfile)) {
+		fprintf(stderr, "lockfile(unlink): %s", strerror(errno));
+		return -4;
+	}
+   		if (DeleteSHM(shmkey)) {
+		return (retval ? retval : -4);
+	}
+	return retval;
 }

@@ -10,11 +10,12 @@ LFLAGS=-lsgutils2 -lz
 
 C_FILES = siod.c siod_progress.c
 TARGETS = $(patsubst %.c,%,$(C_FILES))
+OBJECTS = $(patsubst %.c,%.o,$(C_FILES))
 
 default: $(TARGETS)
 
 clean:
-	\rm -f siod
+	\rm -f $(TARGETS) $(OBJECTS)
 depend:
 	@makedepend $(INCDIRS) siod.c siod_progress.c
 # DO NOT DELETE
@@ -141,4 +142,25 @@ siod.o: /usr/lib/../include/c++/4.8.5/bits/sstream.tcc lfsr.h
 siod.o: /usr/lib/../include/c++/4.8.5/map
 siod.o: /usr/lib/../include/c++/4.8.5/bits/stl_map.h
 siod.o: /usr/lib/../include/c++/4.8.5/bits/stl_multimap.h siod.h
-siod_progress.o: siod.h
+siod_progress.o: /usr/include/stdio.h /usr/include/features.h
+siod_progress.o: /usr/include/stdc-predef.h /usr/include/sys/cdefs.h
+siod_progress.o: /usr/include/bits/wordsize.h /usr/include/gnu/stubs.h
+siod_progress.o: /usr/lib/gcc/x86_64-redhat-linux/4.8.5/include/stddef.h
+siod_progress.o: /usr/include/bits/types.h /usr/include/bits/typesizes.h
+siod_progress.o: /usr/include/libio.h /usr/include/_G_config.h
+siod_progress.o: /usr/include/wchar.h
+siod_progress.o: /usr/lib/gcc/x86_64-redhat-linux/4.8.5/include/stdarg.h
+siod_progress.o: /usr/include/bits/stdio_lim.h
+siod_progress.o: /usr/include/bits/sys_errlist.h /usr/include/errno.h
+siod_progress.o: /usr/include/bits/errno.h /usr/include/linux/errno.h
+siod_progress.o: /usr/include/asm/errno.h /usr/include/asm-generic/errno.h
+siod_progress.o: /usr/include/asm-generic/errno-base.h /usr/include/string.h
+siod_progress.o: /usr/include/xlocale.h /usr/include/sys/types.h
+siod_progress.o: /usr/include/time.h /usr/include/endian.h
+siod_progress.o: /usr/include/bits/endian.h /usr/include/bits/byteswap.h
+siod_progress.o: /usr/include/bits/byteswap-16.h /usr/include/sys/select.h
+siod_progress.o: /usr/include/bits/select.h /usr/include/bits/sigset.h
+siod_progress.o: /usr/include/bits/time.h /usr/include/sys/sysmacros.h
+siod_progress.o: /usr/include/bits/pthreadtypes.h /usr/include/sys/ipc.h
+siod_progress.o: /usr/include/bits/ipctypes.h /usr/include/bits/ipc.h
+siod_progress.o: /usr/include/sys/shm.h /usr/include/bits/shm.h siod.h
