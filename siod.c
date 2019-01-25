@@ -108,32 +108,35 @@ static bool DeleteSHM(const key_t & shmkey) {
 }
 
 static void makeexit(const int & status) {
-    if (logfp) gzprintf(logfp,  "%s %s blocks accessed %s\n", LoglineStart().c_str(), UINT64(blocks_accessed).c_str(), KeyCounts().c_str());
-    else        fprintf(stderr, "%s %s blocks accessed %s\n", LoglineStart().c_str(), UINT64(blocks_accessed).c_str(), KeyCounts().c_str());
-           if (logfp) 
+    if (logfp) gzprintf(logfp,  "%s %s blocks accessed %s\n", LoglineStart().c_str(),
+            UINT64(blocks_accessed).c_str(), KeyCounts().c_str());
+    else       fprintf(stderr, "%s %s blocks accessed %s\n", LoglineStart().c_str(),
+            UINT64(blocks_accessed).c_str(), KeyCounts().c_str());
+    if (logfp) 
         switch (gzclose(logfp)) {
             case Z_OK:
                 break;
             case Z_STREAM_ERROR:
-                       fprintf(stderr, "%s GZIP error : file was NULL (or Z_NULL), or did not refer to an open compressed file stream\n", LoglineStart().c_str());
+                fprintf(stderr, "%s GZIP error : file was NULL (or Z_NULL), or did not refer to an open compressed file stream\n", LoglineStart().c_str());
                 break;
             case Z_ERRNO:
-                       fprintf(stderr, "%s GZIP error : %s\n", LoglineStart().c_str(), strerror(errno));
+                fprintf(stderr, "%s GZIP error : %s\n", LoglineStart().c_str(), strerror(errno));
                 break;
             case Z_BUF_ERROR:
-                       fprintf(stderr, "%s GZIP error : no compression progress is possible during buffer flush\n", LoglineStart().c_str());
+                fprintf(stderr, "%s GZIP error : no compression progress is possible during buffer flush\n", LoglineStart().c_str());
                 break;
             default:
-                       fprintf(stderr, "%s GZIP error : unknown error\n", LoglineStart().c_str());
+                fprintf(stderr, "%s GZIP error : unknown error\n", LoglineStart().c_str());
                 break;
-               }
+        }
     exit(status);
 }
 
-static void logprint(const char * const file, const int & line, const ErrorType & e, const bool & fatal, const std::string & s = std::string(), const double & start = 0, const double & end = 0,
-               const unsigned char * const cdb = NULL, const unsigned char * const sbp = NULL) {
+static void logprint(const char * const file, const int & line, const ErrorType & e,
+        const bool & fatal, const std::string & s = std::string(), const double & start = 0, const double & end = 0,
+        const unsigned char * const cdb = NULL, const unsigned char * const sbp = NULL) {
     std::ostringstream head;
-           head << LoglineStart() << file << ':' << line << ": ";
+    head << LoglineStart() << file << ':' << line << ": ";
     switch (e) {
         case ErrorSyscall:
             {
