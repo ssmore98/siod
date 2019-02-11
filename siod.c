@@ -357,22 +357,22 @@ static void do_wait(const uint8_t & key, const std::set<int> fds, const uint16_t
                    logprint(__FILE__, __LINE__, ErrorSyscall, true, "pselect");
             break;
         default:
-                   for (std::set<int>::const_iterator fd = fds.begin(); fd != fds.end(); fd++) {
-                       if (FD_ISSET(*fd, &FDS)) {
-                           sg_io_hdr_t io_hdr;
-                           if (&io_hdr != memset(&io_hdr, 0, sizeof(sg_io_hdr_t))) {
-                               logprint(__FILE__, __LINE__, ErrorSyscall, true, "memset");
-                           }
-                           if (-1 == read(*fd, &io_hdr, sizeof(sg_io_hdr_t))) {
-                               logprint(__FILE__, __LINE__, ErrorSyscall, true, "read");
-                           } 
+            for (std::set<int>::const_iterator fd = fds.begin(); fd != fds.end(); fd++) {
+                if (FD_ISSET(*fd, &FDS)) {
+                    sg_io_hdr_t io_hdr;
+                    if (&io_hdr != memset(&io_hdr, 0, sizeof(sg_io_hdr_t))) {
+                        logprint(__FILE__, __LINE__, ErrorSyscall, true, "memset");
+                    }
+                    if (-1 == read(*fd, &io_hdr, sizeof(sg_io_hdr_t))) {
+                        logprint(__FILE__, __LINE__, ErrorSyscall, true, "read");
+                    } 
                     IO * const io = (IO *)(io_hdr.usr_ptr);
-                           if (NULL == io) {
-                               logprint(__FILE__, __LINE__, ErrorSyscall, true, "usr_ptr");
-                           } 
+                    if (NULL == io) {
+                        logprint(__FILE__, __LINE__, ErrorSyscall, true, "usr_ptr");
+                    } 
                     io->end = gettime();
-                           io->used = false;
-                           const std::string s(strtime());
+                    io->used = false;
+                    const std::string s(strtime());
                     const bool in_error = (io_hdr.masked_status != GOOD) || (io_hdr.host_status != SG_LIB_DID_OK) || (io_hdr.driver_status != SG_LIB_DRIVER_OK);
                            switch (io_hdr.masked_status) {
                                case GOOD:
@@ -382,126 +382,126 @@ static void do_wait(const uint8_t & key, const std::set<int> fds, const uint16_t
                                    break;
                                case CONDITION_GOOD:
                                    logprint(__FILE__, __LINE__, ErrorIO, false, "Condition Good", io->start, io->end, io->cdb, io->sb);
-                            break;
+                                   break;
                                case INTERMEDIATE_GOOD:
                                    logprint(__FILE__, __LINE__, ErrorIO, false, "Intermediate Good", io->start, io->end, io->cdb, io->sb);
-                            break;
+                                   break;
                                case INTERMEDIATE_C_GOOD:
                                    logprint(__FILE__, __LINE__, ErrorIO, false, "Intermediate C Good", io->start, io->end, io->cdb, io->sb);
-                            break;
+                                   break;
                                case BUSY:
                                    logprint(__FILE__, __LINE__, ErrorIO, false, "Busy", io->start, io->end, io->cdb, io->sb);
-                            break;
+                                   break;
                                case RESERVATION_CONFLICT:
                                    logprint(__FILE__, __LINE__, ErrorIO, false, "Reservation Conflict", io->start, io->end, io->cdb, io->sb);
-                            break;
+                                   break;
                                case COMMAND_TERMINATED:
                                    logprint(__FILE__, __LINE__, ErrorIO, false, "Command Terminated", io->start, io->end, io->cdb, io->sb);
-                            break;
+                                   break;
                                case QUEUE_FULL:
                                    logprint(__FILE__, __LINE__, ErrorIO, false, "Queue Full", io->start, io->end, io->cdb, io->sb);
-                            break;
-                        default:
-                            {
-                                std::ostringstream s;
-                                s << "Unknown Condition (0x" << std::setfill('0') << std::hex << std::setw(2) << io_hdr.masked_status;
+                                   break;
+                               default:
+                                   {
+                                       std::ostringstream s;
+                                       s << "Unknown Condition (0x" << std::setfill('0') << std::hex << std::setw(2) << io_hdr.masked_status;
                                        logprint(__FILE__, __LINE__, ErrorIO, false, s.str(), io->start, io->end, io->cdb, io->sb);
-                            }
-                            break;
-                    }
-                    switch (io_hdr.host_status) {
+                                   }
+                                   break;
+                           }
+                           switch (io_hdr.host_status) {
                                case SG_LIB_DID_OK: 
-                            break;
+                                   break;
                                case SG_LIB_DID_NO_CONNECT: 
                                    logprint(__FILE__, __LINE__, ErrorIO, false, "HOST UNABLE TO CONNECT BEFORE TIMEOUT", io->start, io->end, io->cdb, io->sb);
-                            break;
+                                   break;
                                case SG_LIB_DID_BUS_BUSY: 
                                    logprint(__FILE__, __LINE__, ErrorIO, false, "HOST BUS BUSY TILL TIMEOUT", io->start, io->end, io->cdb, io->sb);
-                            break;
+                                   break;
                                case SG_LIB_DID_TIME_OUT: 
                                    logprint(__FILE__, __LINE__, ErrorIO, false, "HOST TIMEOUT", io->start, io->end, io->cdb, io->sb);
-                            break;
+                                   break;
                                case SG_LIB_DID_BAD_TARGET: 
                                    logprint(__FILE__, __LINE__, ErrorIO, false, "HOST BAD TARGET", io->start, io->end, io->cdb, io->sb);
-                            break;
+                                   break;
                                case SG_LIB_DID_ABORT: 
                                    logprint(__FILE__, __LINE__, ErrorIO, false, "HOST ABORT", io->start, io->end, io->cdb, io->sb);
-                            break;
+                                   break;
                                case SG_LIB_DID_PARITY: 
                                    logprint(__FILE__, __LINE__, ErrorIO, false, "HOST PARITY ERROR ON SCSI BUS", io->start, io->end, io->cdb, io->sb);
-                            break;
+                                   break;
                                case SG_LIB_DID_ERROR: 
                                    logprint(__FILE__, __LINE__, ErrorIO, false, "HOST INTERNAL ERROR", io->start, io->end, io->cdb, io->sb);
-                            break;
+                                   break;
                                case SG_LIB_DID_RESET: 
                                    logprint(__FILE__, __LINE__, ErrorIO, false, "HOST RESET", io->start, io->end, io->cdb, io->sb);
-                            break;
+                                   break;
                                case SG_LIB_DID_BAD_INTR: 
                                    logprint(__FILE__, __LINE__, ErrorIO, false, "HOST RECEIVED AN UNEXPECTED  INTERRUPT", io->start, io->end, io->cdb, io->sb);
-                            break;
+                                   break;
                                case SG_LIB_DID_PASSTHROUGH: 
                                    logprint(__FILE__, __LINE__, ErrorIO, false, "HOST FORCE COMMAND PAST MID-LEVEL", io->start, io->end, io->cdb, io->sb);
-                            break;
+                                   break;
                                case SG_LIB_DID_SOFT_ERROR: 
                                    logprint(__FILE__, __LINE__, ErrorIO, false, "HOST THE LOW LEVEL DRIVER WANTS A RETRY", io->start, io->end, io->cdb, io->sb);
-                            break;
+                                   break;
                                default:
-                            {
-                                std::ostringstream s;
-                                s << "HOST UNKNOWN STATUS (0x" << std::setfill('0') << std::hex << std::setw(2) << io_hdr.host_status;
+                                   {
+                                       std::ostringstream s;
+                                       s << "HOST UNKNOWN STATUS (0x" << std::setfill('0') << std::hex << std::setw(2) << io_hdr.host_status;
                                        logprint(__FILE__, __LINE__, ErrorIO, false, s.str(), io->start, io->end, io->cdb, io->sb);
-                            }
-                            break;
-                    }
-                    switch (io_hdr.driver_status & 0xF) {
+                                   }
+                                   break;
+                           }
+                           switch (io_hdr.driver_status & 0xF) {
                                case SG_LIB_DRIVER_OK: 
-                            break;
-                        case SG_LIB_DRIVER_BUSY: 
+                                   break;
+                               case SG_LIB_DRIVER_BUSY: 
                                    logprint(__FILE__, __LINE__, ErrorIO, false, "DRIVER BUSY", io->start, io->end, io->cdb, io->sb);
-                            break;
-                        case SG_LIB_DRIVER_SOFT: 
+                                   break;
+                               case SG_LIB_DRIVER_SOFT: 
                                    logprint(__FILE__, __LINE__, ErrorIO, false, "DRIVER SOFTWARE ERROR", io->start, io->end, io->cdb, io->sb);
-                            break;
-                        case SG_LIB_DRIVER_MEDIA: 
+                                   break;
+                               case SG_LIB_DRIVER_MEDIA: 
                                    logprint(__FILE__, __LINE__, ErrorIO, false, "DRIVER MEDIA ERROR", io->start, io->end, io->cdb, io->sb);
-                            break;
-                        case SG_LIB_DRIVER_ERROR: 
+                                   break;
+                               case SG_LIB_DRIVER_ERROR: 
                                    logprint(__FILE__, __LINE__, ErrorIO, false, "DRIVER ERROR", io->start, io->end, io->cdb, io->sb);
-                            break;
-                        case SG_LIB_DRIVER_INVALID: 
+                                   break;
+                               case SG_LIB_DRIVER_INVALID: 
                                    logprint(__FILE__, __LINE__, ErrorIO, false, "DRIVER INVALID ERROR", io->start, io->end, io->cdb, io->sb);
-                            break;
-                        case SG_LIB_DRIVER_TIMEOUT: 
+                                   break;
+                               case SG_LIB_DRIVER_TIMEOUT: 
                                    logprint(__FILE__, __LINE__, ErrorIO, false, "DRIVER TIMEOUT ERROR", io->start, io->end, io->cdb, io->sb);
-                            break;
-                        case SG_LIB_DRIVER_HARD: 
+                                   break;
+                               case SG_LIB_DRIVER_HARD: 
                                    logprint(__FILE__, __LINE__, ErrorIO, false, "DRIVER HARDWARE ERROR", io->start, io->end, io->cdb, io->sb);
-                            break;
-                        case SG_LIB_DRIVER_SENSE: 
+                                   break;
+                               case SG_LIB_DRIVER_SENSE: 
                                    logprint(__FILE__, __LINE__, ErrorIO, false, "DRIVER SENSE ERROR", io->start, io->end, io->cdb, io->sb);
-                            break;
-                        default:
-                            {
-                                std::ostringstream s;
-                                s << "DRIVER UNKNOWN STATUS (0x" << std::setfill('0') << std::hex << std::setw(2) << io_hdr.driver_status;
+                                   break;
+                               default:
+                                   {
+                                       std::ostringstream s;
+                                       s << "DRIVER UNKNOWN STATUS (0x" << std::setfill('0') << std::hex << std::setw(2) << io_hdr.driver_status;
                                        logprint(__FILE__, __LINE__, ErrorIO, false, s.str(), io->start, io->end, io->cdb, io->sb);
-                            }
-                            break;
-                    }
+                                   }
+                                   break;
+                           }
                            if ((!in_error) && (SG_DXFER_FROM_DEV == io_hdr.dxfer_direction)) {
-                        uint64_t address = 0;
+                               uint64_t address = 0;
                                for (unsigned int j = 0; j < 8; j++) {
                                    address = (address << 8) | io_hdr.cmdp[2 + j];
                                }
-                        uint16_t length = 0;
+                               uint16_t length = 0;
                                for (unsigned int j = 0; j < 2; j++) {
                                    length = (length << 8) | io_hdr.cmdp[12 + j];
                                }
                                if (WrongData(key, address, blocksize, length, (unsigned char *)io_hdr.dxferp, iddata)) {
                                    logprint(__FILE__, __LINE__, ErrorData, false, "", io->start, io->end, io->cdb);
-                            data_miscompare = true;
-                        }
-                    }
+                                   data_miscompare = true;
+                               }
+                           }
                            delete [] ((unsigned char *)io_hdr.dxferp);
                 }
             }
