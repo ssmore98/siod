@@ -18,6 +18,7 @@ clean:
 	\rm -f $(TARGETS) $(OBJECTS)
 depend:
 	@makedepend $(INCDIRS) siod.c siod_progress.c
+
 # DO NOT DELETE
 
 siod.o: /usr/include/stdio.h /usr/include/features.h
@@ -116,7 +117,7 @@ siod.o: /usr/lib/../include/c++/4.8.5/streambuf
 siod.o: /usr/lib/../include/c++/4.8.5/bits/streambuf.tcc
 siod.o: /usr/lib/../include/c++/4.8.5/bits/basic_ios.h
 siod.o: /usr/lib/../include/c++/4.8.5/bits/locale_facets.h
-siod.o: /usr/lib/../include/c++/4.8.5/cwctype /usr/include/wctype.h
+siod.o: /usr/lib/../include/c++/4.8.5/cwctype
 siod.o: /usr/lib/../include/c++/4.8.5/x86_64-redhat-linux/bits/ctype_base.h
 siod.o: /usr/lib/../include/c++/4.8.5/bits/streambuf_iterator.h
 siod.o: /usr/lib/../include/c++/4.8.5/x86_64-redhat-linux/bits/ctype_inline.h
