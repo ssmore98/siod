@@ -263,7 +263,7 @@ static bool WrongData(const uint8_t & key, const uint64_t & address, const uint1
                     data_key_count[0]   += 1;
                     data_key_count[key] -= 1;
                     std::ostringstream error_block;
-                    error_block << address + j;
+                    error_block << UINT64(address + j).c_str();
                     logprint(__FILE__, __LINE__, ErrorBlock, false, error_block.str());
                     break;
                 }
@@ -281,7 +281,7 @@ static bool WrongData(const uint8_t & key, const uint64_t & address, const uint1
                     data_key_count[0]    += 1;
                     data_key_count[bkey] -= 1;
                     std::ostringstream error_block;
-                    error_block << address + j;
+                    error_block << UINT64(address + j).c_str();
                     logprint(__FILE__, __LINE__, ErrorBlock, false, error_block.str());
                     break;
                 }
