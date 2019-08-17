@@ -49,7 +49,7 @@ static uint64_t blocks_accessed = 0;
 static bool     data_miscompare = false;
 static uint64_t data_key_count[4];
 
-typedef enum {ErrorNone, ErrorSyscall, ErrorIO, ErrorData, ErrorSignal, ErrorInternal} ErrorType;
+typedef enum {ErrorNone, ErrorSyscall, ErrorIO, ErrorData, ErrorBlock, ErrorSignal, ErrorInternal} ErrorType;
 
 static std::string strtime() {
     time_t t;
@@ -164,8 +164,12 @@ static void logprint(const char * const file, const int & line, const ErrorType 
             }
             break;
         case ErrorData:
-                   if (logfp) gzprintf(logfp,  "%s Data error : %lf %lf : %s\n", head.str().c_str(), start, end, cdb2str(cdb).c_str());
-                   else        fprintf(stderr, "%s Data error : %lf %lf : %s\n", head.str().c_str(), start, end, cdb2str(cdb).c_str());
+            if (logfp) gzprintf(logfp,  "%s Data error : %lf %lf : %s\n", head.str().c_str(), start, end, cdb2str(cdb).c_str());
+            else        fprintf(stderr, "%s Data error : %lf %lf : %s\n", head.str().c_str(), start, end, cdb2str(cdb).c_str());
+            break;
+        case ErrorBlock:
+            if (logfp) gzprintf(logfp,  "%s Data Mismatch : %s\n", head.str().c_str(), s.c_str());
+            else        fprintf(stderr, "%s Data Mismatch : %s\n", head.str().c_str(), s.c_str());
             break;
         default:
                    if (logfp) gzprintf(logfp,  "%s Unknown error\n", head.str().c_str());
@@ -246,36 +250,43 @@ static unsigned char *RandomData(const uint8_t & key, const uint64_t & address, 
            return data;
 }
 
-static bool WrongData(const uint8_t & key, const uint64_t & address, const uint16_t & blocksize, const uint16_t & blocks, const unsigned char * const data, const unsigned char * const iddata) {
+static bool WrongData(const uint8_t & key, const uint64_t & address, const uint16_t & blocksize,
+        const uint16_t & blocks, const unsigned char * const data, const unsigned char * const iddata) {
     bool retval = false;
     if (key) {
-               const unsigned char * const xdata = RandomData(key, address, blocksize, blocks, iddata);
-               for (uint16_t j = 0; j < blocks; j++) {
-                   data_key_count[key] += 1;
-                   for (uint16_t i = 0; i < blocksize; i++) {
-                       if (xdata[j * blocksize + i] != data[j * blocksize + i]) {
-                           retval = true;
-                           data_key_count[0]   += 1;
-                           data_key_count[key] -= 1;
+        const unsigned char * const xdata = RandomData(key, address, blocksize, blocks, iddata);
+        for (uint16_t j = 0; j < blocks; j++) {
+            data_key_count[key] += 1;
+            for (uint16_t i = 0; i < blocksize; i++) {
+                if (xdata[j * blocksize + i] != data[j * blocksize + i]) {
+                    retval = true;
+                    data_key_count[0]   += 1;
+                    data_key_count[key] -= 1;
+                    std::ostringstream error_block;
+                    error_block << UINT64(address + j).c_str();
+                    logprint(__FILE__, __LINE__, ErrorBlock, false, error_block.str());
                     break;
-                       }
-                   }
+                }
+            }
         }
-               delete [] xdata;
+        delete [] xdata;
     } else {
-               for (uint16_t j = 0; j < blocks; j++) {
-                   const uint8_t bkey = ((*(uint64_t *)(data + j * blocksize)) >> 62) & 0x3;
-                   const unsigned char * const xdata = RandomData(bkey, address + j, blocksize, 1, iddata);
-                   data_key_count[bkey] += 1;
-                   for (uint16_t i = 0; i < blocksize; i++) {
-                       if (xdata[i] != data[j * blocksize + i]) {
-                           retval = true;
-                           data_key_count[0]    += 1;
-                           data_key_count[bkey] -= 1;
+        for (uint16_t j = 0; j < blocks; j++) {
+            const uint8_t bkey = ((*(uint64_t *)(data + j * blocksize)) >> 62) & 0x3;
+            const unsigned char * const xdata = RandomData(bkey, address + j, blocksize, 1, iddata);
+            data_key_count[bkey] += 1;
+            for (uint16_t i = 0; i < blocksize; i++) {
+                if (xdata[i] != data[j * blocksize + i]) {
+                    retval = true;
+                    data_key_count[0]    += 1;
+                    data_key_count[bkey] -= 1;
+                    std::ostringstream error_block;
+                    error_block << UINT64(address + j).c_str();
+                    logprint(__FILE__, __LINE__, ErrorBlock, false, error_block.str());
                     break;
-                       }
-                   }
-                   delete [] xdata;
+                }
+            }
+            delete [] xdata;
         }
     }
     return retval;
@@ -674,7 +685,7 @@ static int slave(const std::string & argv0, const bool & is_write, const bool & 
             blocksize = (blocksize << 8) + resp[i];
         }
     }
-    max_lba = 1024 * 1025 * 32;
+    max_lba = 1024 * 1024 * 8;
     if (logfp) gzprintf(logfp,  "%s Max LBA %s Block Size %u\n", LoglineStart().c_str(), UINT64(max_lba).c_str(), blocksize);
     else        fprintf(stderr, "%s Max LBA %s Block Size %u\n", LoglineStart().c_str(), UINT64(max_lba).c_str(), blocksize);
 
