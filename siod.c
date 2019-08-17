@@ -1,5 +1,5 @@
 /*
- * The requirements document is at https://docs.google.com/a/infinidat.com/document/d/1gD07lBKSKI8H1A4sUchQmPTxLFu9z2OraoEh29HTkQI/edit?usp=sharing
+ * The requirements document is at https://wiki.infinidat.com/x/iVBCB
  */
 #include <stdio.h>
 #include <stdint.h>
@@ -674,6 +674,7 @@ static int slave(const std::string & argv0, const bool & is_write, const bool & 
             blocksize = (blocksize << 8) + resp[i];
         }
     }
+    max_lba = 1024 * 1025 * 32;
     if (logfp) gzprintf(logfp,  "%s Max LBA %s Block Size %u\n", LoglineStart().c_str(), UINT64(max_lba).c_str(), blocksize);
     else        fprintf(stderr, "%s Max LBA %s Block Size %u\n", LoglineStart().c_str(), UINT64(max_lba).c_str(), blocksize);
 
@@ -842,7 +843,7 @@ int main(int argc, char **argv) {
             is_write = true;
             break;
         default:
-                   print_usage(argv[0]);
+            print_usage(argv[0]);
     }
     bool is_random = false;
     switch (argv[2][0]) {
@@ -855,17 +856,17 @@ int main(int argc, char **argv) {
             is_random = false;
             break;
         default:
-                   print_usage(argv[0]);
+            print_usage(argv[0]);
     }
 
     uint16_t iosize = 0;
     if (1 != sscanf(argv[3], "%hu", &iosize) || !iosize) {
-               print_usage(argv[0]);
+        print_usage(argv[0]);
     }
 
     uint16_t qdepth = 0;
     if (1 != sscanf(argv[4], "%hu", &qdepth) || !qdepth || (qdepth > 128)) {
-               print_usage(argv[0]);
+        print_usage(argv[0]);
     }
 
     uint8_t key = 0;
@@ -883,7 +884,7 @@ int main(int argc, char **argv) {
             key = 3;
             break;
         default:
-                   print_usage(argv[0]);
+            print_usage(argv[0]);
     }
 
     const std::string logfile_prefix(argv[6]);
