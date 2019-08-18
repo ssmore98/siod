@@ -685,7 +685,6 @@ static int slave(const std::string & argv0, const bool & is_write, const bool & 
             blocksize = (blocksize << 8) + resp[i];
         }
     }
-    max_lba = 1024 * 1024 * 8;
     if (logfp) gzprintf(logfp,  "%s Max LBA %s Block Size %u\n", LoglineStart().c_str(), UINT64(max_lba).c_str(), blocksize);
     else        fprintf(stderr, "%s Max LBA %s Block Size %u\n", LoglineStart().c_str(), UINT64(max_lba).c_str(), blocksize);
 
