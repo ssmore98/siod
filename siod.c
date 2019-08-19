@@ -253,6 +253,9 @@ static unsigned char *RandomData(const uint8_t & key, const uint64_t & address, 
 static bool WrongData(const uint8_t & key, const uint64_t & address, const uint16_t & blocksize,
         const uint16_t & blocks, const unsigned char * const data, const unsigned char * const iddata) {
     bool retval = false;
+    bool error_range_f = false;
+    uint64_t error_range_start = 0;
+    uint64_t error_range_end = 0;
     if (key) {
         const unsigned char * const xdata = RandomData(key, address, blocksize, blocks, iddata);
         for (uint16_t j = 0; j < blocks; j++) {
@@ -262,9 +265,19 @@ static bool WrongData(const uint8_t & key, const uint64_t & address, const uint1
                     retval = true;
                     data_key_count[0]   += 1;
                     data_key_count[key] -= 1;
-                    std::ostringstream error_block;
-                    error_block << UINT64(address + j).c_str();
-                    logprint(__FILE__, __LINE__, ErrorBlock, false, error_block.str());
+                    if (error_range_f) {
+                        if (address + j == error_range_end + 1) {
+                            error_range_end = address + j;
+                        } else {
+                            std::ostringstream error_block;
+                            error_block << UINT64(error_range_start).c_str() << " " << UINT64(error_range_end).c_str();
+                            logprint(__FILE__, __LINE__, ErrorBlock, false, error_block.str());
+                            error_range_start = error_range_end = address + j;
+                        }
+                    } else {
+                        error_range_f = true;
+                        error_range_start = error_range_end = address + j;
+                    }
                     break;
                 }
             }
@@ -280,14 +293,30 @@ static bool WrongData(const uint8_t & key, const uint64_t & address, const uint1
                     retval = true;
                     data_key_count[0]    += 1;
                     data_key_count[bkey] -= 1;
-                    std::ostringstream error_block;
-                    error_block << UINT64(address + j).c_str();
-                    logprint(__FILE__, __LINE__, ErrorBlock, false, error_block.str());
+                    if (error_range_f) {
+                        if (address + j == error_range_end + 1) {
+                            error_range_end = address + j;
+                        } else {
+                            std::ostringstream error_block;
+                            error_block << UINT64(error_range_start).c_str() << " " << UINT64(error_range_end).c_str();
+                            logprint(__FILE__, __LINE__, ErrorBlock, false, error_block.str());
+                            error_range_start = error_range_end = address + j;
+                        }
+                    } else {
+                        error_range_f = true;
+                        error_range_start = error_range_end = address + j;
+                    }
                     break;
                 }
             }
             delete [] xdata;
         }
+    }
+    // make sure the last range gets printed!
+    if (error_range_f) {
+        std::ostringstream error_block;
+        error_block << UINT64(error_range_start).c_str() << " " << UINT64(error_range_end).c_str();
+        logprint(__FILE__, __LINE__, ErrorBlock, false, error_block.str());
     }
     return retval;
 }
@@ -685,6 +714,7 @@ static int slave(const std::string & argv0, const bool & is_write, const bool & 
             blocksize = (blocksize << 8) + resp[i];
         }
     }
+    max_lba = 1024 * 1024 * 16;
     if (logfp) gzprintf(logfp,  "%s Max LBA %s Block Size %u\n", LoglineStart().c_str(), UINT64(max_lba).c_str(), blocksize);
     else        fprintf(stderr, "%s Max LBA %s Block Size %u\n", LoglineStart().c_str(), UINT64(max_lba).c_str(), blocksize);
 
