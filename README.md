@@ -9,5 +9,24 @@ and then generates the expected data and compares it with actual.
 
 It logs its progress and errors in a log file.
 
-This program will be used as a building block for a larger project that will
-test drive quality.
+This program can be used as a building block for a larger project that tests
+drive quality.
+
+Usage:
+
+./siod <operation> <locality> <I/O size> <queue depth> <encoding> <logfile prefix> <device>+
+
+	Operation   - [rw] read/write
+	Locality    - [rs] random/sequential
+	I/O size    - [0-9]+ number of blocks
+	Queue depth - [0-9]+ 
+	Encoding    - [0123]
+			0 - Write -> all zeroes      Read -> detect encoding and check data (all zeros is invalid data)
+			1 - Write -> with encoding 1 Read -> check for encoding 1
+			2 - Write -> with encoding 2 Read -> check for encoding 2
+			3 - Write -> with encoding 3 Read -> check for encoding 3
+	Device      - <sg>:<ha>:<ta>:<ts>
+			sg - [0-9]+ The sg device number, device XXX refers to /dev/sgXXX
+			ha - [0-9a-fA-F]+ The host address as an 8 byte hexadecimal integer
+			ta - [0-9a-fA-F]+ The target address as an 8 byte hexadecimal integer
+			ts - [0-9]+ The time stamp as an 8 byte integer
