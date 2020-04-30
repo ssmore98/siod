@@ -14,7 +14,7 @@ drive quality.
 
 Usage:
 
-./siod <operation> <locality> <I/O size> <queue depth> <encoding> <logfile prefix> <device>+
+./siod operation locality I/O_size queue_depth encoding logfile_prefix> device+
 
 	Operation   - [rw] read/write
 	Locality    - [rs] random/sequential
