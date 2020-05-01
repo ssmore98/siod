@@ -9,21 +9,31 @@
 #include <map>
 #include <vector>
 
+/*
+ * This class implements a LFSR (up to 64 bits)
+ */
 class LFSR {
 	private:
 	protected:
-		uint64_t next_value;
+		uint64_t next_value; // the LFSR value
+
 		typedef std::vector<uint8_t> BITMAP;
-		BITMAP bitmap;
+		BITMAP bitmap; // the bit pattern  used to compute the next value
+                       // of the LFSR
+
+        // advance the LFSR
 		void next() {
 			uint64_t bit = next_value;
-			for (BITMAP::const_iterator i = bitmap.begin(); i != bitmap.end(); i++) {
+			for (BITMAP::const_iterator i = bitmap.begin(); i != bitmap.end();
+                    i++) {
 				bit ^= next_value >> *i;
 			}
 			bit &= 1;
-			// const uint64_t bit = (next_value ^ (next_value >> 1)) & 1;
 			next_value = (bit << (bits - 1)) | (next_value >> 1);
 		}
+
+        // find the size of n in number of bits aka the highest non-zero bit
+        // position
 		static uint8_t n_bits(const uint64_t & n) {
 			uint8_t retval = 0;
 			uint64_t nn = n;
@@ -34,12 +44,17 @@ class LFSR {
 			return retval;
 		}
 	public:
-		const uint8_t bits;
-		LFSR(const uint64_t & blocks, const uint64_t & seed = getpid()): next_value(seed), bits(n_bits(blocks)) {
+		const uint8_t bits; // the size of the LFSR
+		LFSR(const uint64_t & blocks, const uint64_t & seed = getpid()):
+            next_value(seed), bits(n_bits(blocks)) {
+
+            // initialize the LFSR
 			next_value <<= 64 - n_bits(blocks);
 			next_value >>= 64 - n_bits(blocks);
 			while (next_value >= blocks) next_value >>= 1;
 			if (!next_value) next_value = 1;
+
+            // initialize the bit pattern used to advance the LFSR
 			switch (bits) {
 				case 3:
 				case 4:
@@ -236,9 +251,15 @@ class LFSR {
 			}
 		}
 		virtual ~LFSR() {}
+
+        /*
+         * The user API
+         */
+        // get the current value of the LFSR
 		operator uint64_t() const {
 			return next_value;
 		}
+        // the pre and post increment operators for the LFSR
 		uint64_t operator++() {
 			const uint64_t retval = next_value;
 			next();
@@ -250,10 +271,13 @@ class LFSR {
 		}
 };
 
+/*
+ * The base class for the logical block offset in a device of size 'blocks'
+ */
 class Offset {
 	protected:
-		uint64_t offset;
-		uint64_t blocks;
+		uint64_t offset; // current logical block offset in the device
+		uint64_t blocks; // size of the device
 	public:
 		Offset(const uint64_t p_blocks): offset(0), blocks(p_blocks) {
 		}
@@ -271,6 +295,9 @@ class Offset {
 		virtual uint64_t Next() = 0;
 };
 
+/*
+ * Class to create sequential logical block offsets in the device
+ */
 class SequentialOffset: public Offset {
 	private:
 		SequentialOffset(const SequentialOffset & o): Offset(o) {
@@ -290,6 +317,9 @@ class SequentialOffset: public Offset {
 		}
 }; 
 
+/*
+ * Class to create random logical block offsets in the device
+ */
 class RandomOffset: public Offset {
 	private:
 	       	RandomOffset(const RandomOffset &);
@@ -309,6 +339,5 @@ class RandomOffset: public Offset {
 			return 0;
 		}
 };
-
 
 #endif // LFSR_H
