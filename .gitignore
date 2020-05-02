@@ -2,3 +2,6 @@
 Makefile.bak
 *.gz
 *.swp
+siod
+splot
+siod_progress
