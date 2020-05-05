@@ -1,0 +1,176 @@
+#!/usr/bin/python3
+
+cdb_opcodes = {
+    0x00: "TEST UNIT READY",
+    0x01: "REWIND",
+    0x03: "REQUEST SENSE",
+    0x04: "FORMAT",
+    0x05: "READ BLOCK LIMITS",
+    0x07: "REASSIGN BLOCKS",
+    0x07: "INITIALIZE ELEMENT STATUS",
+    0x08: "READ(6)",
+    0x0A: "WRITE(6)",
+    0x0B: "SEEK(6)",
+    0x0F: "READ REVERSE(6)",
+    0x10: "WRITE FILEMARKS(6)",
+    0x11: "SPACE(6)",
+    0x12: "INQUIRY",
+    0x13: "VERIFY(6)",
+    0x14: "RECOVER BUFFERED DATA",
+    0x15: "MODE SELECT(6)",
+    0x16: "RESERVE(6)",
+    0x17: "RELEASE(6)",
+    0x18: "COPY",
+    0x19: "ERASE (6)",
+    0x1A: "MODE SENSE (6)",
+    0x1B: "START STOP UNIT",
+    0x1B: "LOAD UNLOAD",
+    0x1C: "RECEIVE DIAGNOSTIC RESULTS",
+    0x1D: "SEND DIAGNOSTIC",
+    0x1E: "PREVENT ALLOW MEDIUM REMOVAL",
+    0x23: "READ FORMAT CAPACITIES",
+    0x25: "READ CAPACITY(10)",
+    0x28: "READ(10)",
+    0x29: "READ GENERATION",
+    0x2A: "WRITE(10)",
+    0x2B: "SEEK(10)",
+    0x2B: "LOCATE(10)",
+    0x2C: "ERASE(10)",
+    0x2D: "READ UPDATED BLOCK",
+    0x2E: "WRITE AND VERIFY(10)",
+    0x2F: "VERIFY(10)",
+    0x33: "SET LIMITS(10)",
+    0x34: "PRE-FETCH(10)",
+    0x34: "READ POSITION",
+    0x35: "SYNCHRONIZE CACHE(10)",
+    0x36: "LOCK UNLOCK CACHE(10)",
+    0x37: "READ DEFECT DATA(10)",
+    0x37: "INITIALIZE ELEMENT STATUS WITH RANGE",
+    0x38: "MEDIUM SCAN",
+    0x39: "COMPARE",
+    0x3A: "COPY AND VERIFY",
+    0x3B: "WRITE BUFFER",
+    0x3C: "READ BUFFER",
+    0x3D: "UPDATE BLOCK",
+    0x3E: "READ LONG(10)",
+    0x3F: "WRITE LONG(10)",
+    0x40: "CHANGE DEFINITION",
+    0x41: "WRITE SAME(10)",
+    0x43: "READ TOC/PMA/ATIP",
+    0x44: "REPORT DENSITY SUPPORT",
+    0x45: "PLAY AUDIO(10)",
+    0x46: "GET CONFIGURATION",
+    0x47: "PLAY AUDIO MSF",
+    0x48: "SANITIZE",
+    0x4A: "GET EVENT STATUS NOTIFICATION",
+    0x4B: "PAUSE/RESUME",
+    0x4C: "LOG SELECT",
+    0x4D: "LOG SENSE",
+    0x50: "XDWRITE(10)",
+    0x51: "XPWRITE(10)",
+    0x51: "READ DISC INFORMATION",
+    0x52: "XDREAD(10)",
+    0x53: "XDWRITEREAD(10)",
+    0x54: "SEND OPC INFORMATION",
+    0x55: "MODE SELECT(10)",
+    0x56: "RESERVE(10)",
+    0x57: "RELEASE(10)",
+    0x58: "REPAIR TRACK",
+    0x5A: "MODE SENSE(10)",
+    0x5B: "CLOSE TRACK/SESSION",
+    0x5C: "READ BUFFER CAPACITY",
+    0x5D: "SEND CUE SHEET",
+    0x5E: "PERSISTENT RESERVE IN",
+    0x5F: "PERSISTENT RESERVE OUT",
+    0x7E: "extended CDB",
+    0x7F: "variable length CDB",
+    0x80: "XDWRITE EXTENDED(16)",
+    0x80: "WRITE FILEMARKS(16)",
+    0x81: "READ REVERSE(16)",
+    0x83: "Third-party Copy OUT commands",
+    0x84: "Third-party Copy IN commands",
+    0x85: "ATA PASS-THROUGH(16)",
+    0x86: "ACCESS CONTROL IN",
+    0x87: "ACCESS CONTROL OUT",
+    0x88: "READ(16)",
+    0x89: "COMPARE AND WRITE",
+    0x8A: "WRITE(16)",
+    0x8B: "ORWRITE",
+    0x8C: "READ ATTRIBUTE",
+    0x8D: "WRITE ATTRIBUTE",
+    0x8E: "WRITE AND VERIFY(16)",
+    0x8F: "VERIFY(16)",
+    0x90: "PRE-FETCH(16)",
+    0x91: "SYNCHRONIZE CACHE(16)",
+    0x91: "SPACE(16)",
+    0x92: "LOCK UNLOCK CACHE(16)",
+    0x92: "LOCATE(16)",
+    0x93: "WRITE SAME(16)",
+    # 0x93:"ERASE(16)",
+    0x9D: "SERVICE ACTION BIDIRECTIONAL",
+    0x9E: "SERVICE ACTION IN(16)",
+    0x9F: "SERVICE ACTION OUT(16)",
+    0xA0: "REPORT LUNS",
+    0xA1: "ATA PASS-THROUGH(12)",
+    0xA2: "SECURITY PROTOCOL IN",
+    0xA3: "MAINTENANCE IN",
+    0xA4: "MAINTENANCE OUT",
+    0xA4: "REPORT KEY",
+    0xA5: "MOVE MEDIUM",
+    0xA5: "PLAY AUDIO 12",
+    0xA6: "EXCHANGE MEDIUM",
+    0xA7: "MOVE MEDIUM ATTACHED",
+    0xA8: "READ(12)",
+    0xA9: "SERVICE ACTION OUT(12)",
+    0xAA: "WRITE(12)",
+    0xAB: "SERVICE ACTION IN(12)",
+    0xAC: "ERASE(12)",
+    0xAD: "READ DVD STRUCTURE",
+    0xAE: "WRITE AND VERIFY(12)",
+    0xAF: "VERIFY(12)",
+    0xB0: "SEARCH DATA HIGH(12)",
+    0xB1: "SEARCH DATA EQUAL(12)",
+    0xB2: "SEARCH DATA LOW(12)",
+    0xB3: "SET LIMITS(12)",
+    0xB4: "READ ELEMENT STATUS ATTACHED",
+    0xB5: "SECURITY PROTOCOL OUT",
+    0xB6: "SEND VOLUME TAG",
+    0xB7: "READ DEFECT DATA(12)",
+    0xB8: "READ ELEMENT STATUS",
+    0xB9: "READ CD MSF",
+    0xBA: "REDUNDANCY GROUP (IN)",
+    0xBB: "REDUNDANCY GROUP (OUT)",
+    0xBC: "SPARE (IN)",
+    0xBD: "SPARE (OUT)",
+    0xBE: "VOLUME SET (IN)",
+    0xBF: "VOLUME SET (OUT)"
+}
+
+
+def ScanCDB(data):
+    OPCODE = int(data[0][0:2], 16)
+    if OPCODE in cdb_opcodes.keys():
+        return OPCODE, cdb_opcodes[OPCODE]
+    return OPCODE, "Not found"
+
+
+def InterpretCDB(data):
+    opcode, opname = ScanCDB(data)
+    retval = {}
+    retval['opcode'] = '0x{0:02X}'.format(opcode)
+    retval['opname'] = opname
+    if opcode == 0x8F or opcode == 0x88 or opcode == 0x93 or opcode == 0x8A:
+        retval['offset'] = int(''.join(data[1:5]), 16)
+        retval['length'] = int(''.join(data[5:7]), 16)
+    elif opcode == 0x28 or opcode == 0x2A:
+        retval['offset'] = int(''.join(data[1:3]), 16)
+        retval['length'] = int(''.join([data[3][1:2], data[4][0:1]]), 16)
+    elif opcode == 0x08:
+        retval['offset'] = int(''.join([data[0][2:4], ''.join(data[1:2])]), 16)
+        retval['length'] = int(data[2][0:2], 16)
+    else:
+        config.logger.critical(
+            'Opcode 0x{0:02X} ({1}) is not supported yet.'.format(opcode, ScanCDB(data)[1]))
+        exit(-1)
+    return retval
+
