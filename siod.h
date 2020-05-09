@@ -23,6 +23,13 @@ std::string sense2str(const unsigned char * const sense);
 std::string LoglineStart();
 std::string UINT64(const uint64_t & x);
 std::string strtime();
+void logprint(const char * const file, const int & line,
+        const ErrorType & e, const bool & fatal,
+        const std::string & s, const double & start,
+        const double & end, const unsigned char * const cdb,
+        const unsigned char * const sbp);
+void makeexit(const int & status);
+std::string KeyCounts();
 
 
 #endif

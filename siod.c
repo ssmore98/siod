@@ -48,20 +48,10 @@ typedef struct tagIO {
     int fd;
 } IO;
 
-static gzFile   logfp           = 0;
-static uint64_t blocks_accessed = 0;
+extern gzFile   logfp;
+extern uint64_t blocks_accessed;
+extern uint64_t data_key_count[4];
 static bool     data_miscompare = false;
-static uint64_t data_key_count[4];
-
-static std::string KeyCounts() {
-    std::ostringstream o;
-    o << UINT64(data_key_count[0]) << ' ';
-    o << UINT64(data_key_count[1]) << ' ';
-    o << UINT64(data_key_count[2]) << ' ';
-    o << UINT64(data_key_count[3]);
-    return o.str();
-}
-
 
 static bool DeleteSHM(const key_t & shmkey) {
     // delete the shared memory segment to track slave progress
@@ -75,105 +65,6 @@ static bool DeleteSHM(const key_t & shmkey) {
         return true;
     }
     return false;
-}
-
-static void makeexit(const int & status) {
-    if (logfp) gzprintf(logfp,  "%s %s blocks accessed %s\n",
-            LoglineStart().c_str(), UINT64(blocks_accessed).c_str(),
-            KeyCounts().c_str());
-    else       fprintf(stderr, "%s %s blocks accessed %s\n",
-            LoglineStart().c_str(), UINT64(blocks_accessed).c_str(),
-            KeyCounts().c_str());
-    if (logfp) 
-        switch (gzclose(logfp)) {
-            case Z_OK:
-                break;
-            case Z_STREAM_ERROR:
-                fprintf(stderr, "%s GZIP error : file was NULL (or Z_NULL), \
-or did not refer to an open compressed file stream\n",
-                        LoglineStart().c_str());
-                break;
-            case Z_ERRNO:
-                fprintf(stderr, "%s GZIP error : %s\n", LoglineStart().c_str(),
-                        strerror(errno));
-                break;
-            case Z_BUF_ERROR:
-                fprintf(stderr, "%s GZIP error : no compression progress is \
-possible during buffer flush\n",
-                        LoglineStart().c_str());
-                break;
-            default:
-                fprintf(stderr, "%s GZIP error : unknown error\n",
-                        LoglineStart().c_str());
-                break;
-        }
-    exit(status);
-}
-
-void logprint(const char * const file, const int & line,
-        const ErrorType & e, const bool & fatal,
-        const std::string & s, const double & start,
-        const double & end, const unsigned char * const cdb,
-        const unsigned char * const sbp) {
-    std::ostringstream head;
-    head << LoglineStart() << file << ':' << line << ": ";
-    switch (e) {
-        case ErrorSyscall:
-            {
-                std::string errmsg(strerror(errno));
-                if (logfp) gzprintf(logfp, "%s Syscall error : %s (%s)\n",
-                        head.str().c_str(), s.c_str(), errmsg.c_str());
-                else       fprintf(stderr, "%s Syscall error : %s (%s)\n",
-                        head.str().c_str(), s.c_str(), errmsg.c_str());
-            }
-            if (fatal) makeexit(-4);
-            break;
-        case ErrorInternal:
-            if (logfp) gzprintf(logfp,  "%s Internal error : %s\n",
-                    head.str().c_str(), s.c_str());
-            else       fprintf(stderr, "%s Internal error : %s\n",
-                    head.str().c_str(), s.c_str());
-            if (fatal) makeexit(-8);
-            break;
-        case ErrorSignal:
-            if (logfp) gzprintf(logfp,  "%s Signal error : %s\n",
-                    head.str().c_str(), s.c_str());
-            else        fprintf(stderr, "%s Signal error : %s\n",
-                    head.str().c_str(), s.c_str());
-            if (fatal) makeexit(-1);
-            break;
-        case ErrorIO:
-            {
-                std::string errmsg(strerror(errno));
-                if (logfp) gzprintf(logfp, 
-                        "%s IO error : %s (%s) : %lf %lf : %s : %s\n",
-                        head.str().c_str(), s.c_str(), errmsg.c_str(), start,
-                        end, cdb2str(cdb).c_str(), sense2str(sbp).c_str());
-                else        fprintf(stderr,
-                        "%s IO error : %s (%s) : %lf %lf : %s : %s\n",
-                        head.str().c_str(), s.c_str(), errmsg.c_str(), start,
-                        end, cdb2str(cdb).c_str(), sense2str(sbp).c_str());
-            }
-            break;
-        case ErrorData:
-            if (logfp) gzprintf(logfp,  "%s Data error : %lf %lf : %s\n",
-                    head.str().c_str(), start, end, cdb2str(cdb).c_str());
-            else        fprintf(stderr, "%s Data error : %lf %lf : %s\n",
-                    head.str().c_str(), start, end, cdb2str(cdb).c_str());
-            break;
-        case ErrorBlock:
-            if (logfp) gzprintf(logfp,  "%s Data Mismatch : %s\n",
-                    head.str().c_str(), s.c_str());
-            else        fprintf(stderr, "%s Data Mismatch : %s\n",
-                    head.str().c_str(), s.c_str());
-            break;
-        default:
-            if (logfp) gzprintf(logfp,  "%s Unknown error\n",
-                    head.str().c_str());
-            else        fprintf(stderr, "%s Unknown error\n",
-                    head.str().c_str());
-            break;
-    }
 }
 
 static double time2double(const struct timeval & t) {
